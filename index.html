@@ -54,13 +54,13 @@
       </div>
     </div>
 
-    <!-- ============================================== -->
+    <!-- ======================== VIEW: ATTENDANCE ======================== -->
     <section id="view-attendance" class="max-w-md mx-auto space-y-6">
       <!-- บล็อกแจ้งเตือนเมื่อยังไม่ได้กำหนดค่า API_URL -->
       <div id="api-warn-card" class="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-center hidden">
         <i class="ph-bold ph-warning-octagon text-3xl mb-1 text-red-500"></i>
         <p class="font-bold text-sm">ตรวจสอบพบ URL เชื่อมฐานข้อมูลไม่ถูกต้อง</p>
-        <p class="text-xs mt-1 text-red-700">กรุณาคัดลอกเว็บแอป URL ที่ได้จาก Google Apps Script มาใส่ในตัวแปร API_URL ที่บรรทัด 364 ของไฟล์ index.html ก่อนนะครับ</p>
+        <p class="text-xs mt-1 text-red-700">กรุณาคัดลอกเว็บแอป URL ที่ได้จาก Google Apps Script มาใส่ในตัวแปร API_URL ที่บรรทัดของไฟล์ index.html ก่อนใช้งานครับ</p>
       </div>
 
       <div class="bg-white rounded-2xl p-6 custom-shadow border border-slate-100">
@@ -68,7 +68,7 @@
         <div class="flex items-center space-x-3 bg-blue-50 text-blue-700 p-3 rounded-xl mb-4">
           <i class="ph-bold ph-map-pin text-xl animate-bounce"></i>
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wider text-blue-500">พิกัดสาขาที่แสกน</p>
+            <p class="text-xs font-semibold uppercase tracking-wider text-blue-500">พิกัดสาขาที่สแกน</p>
             <p class="font-bold text-sm" id="displayLocName">📍 กรุณาสแกน QR Code จุดลงเวลา</p>
           </div>
         </div>
@@ -87,11 +87,11 @@
 
         <!-- ฟอร์มขั้นตอนสแกนและยืนยันตัวตนพนักงาน -->
         <div id="attendance-form" class="space-y-4 mt-6" style="display:none;">
-          <!-- ขั้นที่ 1: ตรวจสอบข้อมูลพนักงานและ PIN 4 หลัก -->
+          <!-- ขั้นที่ 1: ตรวจสอบข้อมูลพนักงานและ PIN 4 หลัก (รองรับอักษรภาษาอังกฤษและตัวเลข) -->
           <div id="step-id-pin" class="space-y-3">
             <div>
-              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">รหัสพนักงาน</label>
-              <input type="text" id="empId" placeholder="กรอกรหัสพนักงาน" inputmode="numeric" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-slate-800 focus:outline-none focus:border-blue-500 transition">
+              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">รหัสพนักงาน (รองรับตัวอักษรและตัวเลข เช่น HQ1001, BKK02)</label>
+              <input type="text" id="empId" placeholder="กรอกรหัสพนักงาน (ตัวอักษร/ตัวเลข)" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-slate-800 focus:outline-none focus:border-blue-500 uppercase transition">
             </div>
             <div>
               <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">รหัส PIN 4 หลัก</label>
@@ -114,7 +114,7 @@
               <button onclick="resetVerification()" class="text-xs font-bold bg-white text-slate-600 hover:text-red-500 px-2 py-1 rounded-lg border border-slate-200 transition">เปลี่ยนคน</button>
             </div>
 
-            <!-- กล้องสำหรับเซลฟี่ -->
+            <!-- กล้องสำหรับเซลฟี่ (กลไกสลับกล้องแบบอิงโมบายล์เบราว์เซอร์จริง) -->
             <div class="space-y-2">
               <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">📷 บังคับลงเวลาด้วยการเซลฟี่เพื่อยืนยันตัวตน</label>
               <div class="relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center border-2 border-slate-200 shadow-inner">
@@ -125,8 +125,8 @@
                   <div class="w-32 h-32 md:w-40 md:h-40 rounded-full border-2 border-dashed border-white/80 animate-pulse"></div>
                 </div>
                 <!-- ปุ่มสลับกล้อง -->
-                <button onclick="toggleCamera()" class="absolute bottom-2 right-2 p-2 bg-slate-900/80 hover:bg-slate-950 text-white rounded-lg transition text-sm flex items-center gap-1">
-                  <i class="ph-bold ph-camera-rotate"></i> สลับกล้อง
+                <button onclick="toggleCamera()" class="absolute bottom-2 right-2 p-2 bg-slate-900/80 hover:bg-slate-950 text-white rounded-lg transition text-sm flex items-center gap-1 z-10">
+                  <i class="ph-bold ph-camera-rotate"></i> สลับกล้องหน้า/หลัง
                 </button>
               </div>
               <!-- พรีวิวภาพนิ่งกรณีถ่ายแล้ว -->
@@ -158,7 +158,7 @@
       </div>
     </section>
 
-    <!-- ============================================== -->
+    <!-- ======================== VIEW: DASHBOARD ======================== -->
     <section id="view-dashboard" class="space-y-6" style="display:none;">
       <!-- กล่องสถิติสรุปด้านบนสุด -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -223,7 +223,7 @@
       </div>
     </section>
 
-    <!-- ============================================== -->
+    <!-- ======================== VIEW: ADMIN ======================== -->
     <section id="view-admin" class="space-y-6" style="display:none;">
       <!-- หน้าจอยืนยันสิทธิ์ก่อนเข้าหน้า Admin -->
       <div id="admin-login-card" class="max-w-md mx-auto bg-white rounded-2xl p-6 custom-shadow border border-slate-100 text-center space-y-4">
@@ -330,14 +330,14 @@
     </section>
   </main>
 
-  <!-- 👤 ฟอร์มสร้างพนักงาน Modal -->
+  <!-- 👤 ฟอร์มสร้างพนักงาน Modal (รหัสพนักงานสามารถกำหนดเป็นข้อความผสมตัวเลขได้แล้ว) -->
   <div id="emp-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border">
       <h3 id="emp-modal-title" class="font-bold text-slate-800 text-base">เพิ่มพนักงานใหม่</h3>
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block font-bold text-slate-500 mb-1">รหัสพนักงาน</label>
-          <input type="text" id="m-emp-id" placeholder="ระบุรหัสพนักงาน (เช่น 1001)" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500">
+          <label class="block font-bold text-slate-500 mb-1">รหัสพนักงาน (ผสมอักษรและตัวเลขได้ เช่น HQ101)</label>
+          <input type="text" id="m-emp-id" placeholder="ระบุรหัสพนักงาน (เช่น BKK1001)" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500 uppercase">
         </div>
         <div>
           <label class="block font-bold text-slate-500 mb-1">ชื่อ-สกุล</label>
@@ -396,15 +396,31 @@
     </div>
   </div>
 
+  <!-- 🛑 กล่องตอบรับยืนยันทำรายการหรูสไตล์โมเดิร์น (แทนที่ confirm Native) -->
+  <div id="confirm-modal" class="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border text-center animate-fade-in">
+      <div class="p-3 bg-red-100 text-red-600 rounded-full inline-block">
+        <i class="ph-bold ph-trash text-3xl"></i>
+      </div>
+      <div>
+        <h3 id="confirm-title" class="font-bold text-slate-800 text-base">ยืนยันการทำรายการ?</h3>
+        <p id="confirm-message" class="text-xs text-slate-500 mt-1 leading-relaxed"></p>
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button onclick="closeConfirmModal(false)" class="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition">ยกเลิก</button>
+        <button onclick="closeConfirmModal(true)" class="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl transition">ยืนยันทำรายการ</button>
+      </div>
+    </div>
+  </div>
+
   <footer class="bg-slate-800 text-slate-400 py-4 text-center text-xs border-t border-slate-700 mt-auto">
     <p>&copy; 2026 TimeGPS Pro Anti-Cheat Attendance System (GitHub Pages)</p>
   </footer>
 
   <!-- ============================================== -->
-  <!-- ============================================== -->
   <script>
     // ⚠️ นำ Web App URL ที่ได้จาก Google Apps Script (ที่ลงท้ายด้วย /exec) มาใส่ที่นี่ครับ
-    const API_URL = 'https://script.google.com/macros/s/AKfycbx1Z0PTn4ri-34-5r9uPRu83VqQPCme2MmDK9IRx9tlDqVw8SVQMsl5a_0es7iPXXVg/exec';
+    const API_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec';
 
     // ดึงค่าตัวแปรจาก URL Params สำหรับแสกนหน้าลงพิกัด
     const urlParams = new URLSearchParams(window.location.search);
@@ -413,16 +429,18 @@
     const locName = urlParams.get('loc') || 'สถานที่ทำงาน';
     const radius = urlParams.get('r') || 100;
 
-    // ตัวแปรส่วนจัดการกล้องเซลฟี่
+    // ตัวแปรส่วนจัดการกล้องเซลฟี่ (ใช้ระบบ facingMode ป้องกันปัญหากล้องมือถือ)
     let mediaStream = null;
-    let cameraDevices = [];
-    let currentDeviceIndex = 0;
+    let currentFacingMode = 'user'; // 'user' = กล้องหน้า, 'environment' = กล้องหลัง
     let selfieCapturedBase64 = null;
     let isEditingEmployee = false;
     
     // ข้อมูลพนักงานที่ผ่านการตรวจสอบสิทธิ์
     let currentEmployeeId = null;
     let currentEmployeePin = null;
+
+    // ระบบ Callback สำหรับ Confirmation Modal
+    let confirmActionCallback = null;
 
     window.onload = function () {
       // 1. ระบบวินิจฉัยความถูกต้องของการเชื่อมต่อ API Proactive Check
@@ -478,6 +496,21 @@
       }, 5000);
     }
 
+    function showConfirm(title, message, onConfirm) {
+      document.getElementById('confirm-title').innerText = title;
+      document.getElementById('confirm-message').innerText = message;
+      confirmActionCallback = onConfirm;
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+
+    function closeConfirmModal(isConfirmed) {
+      document.getElementById('confirm-modal').classList.add('hidden');
+      if (isConfirmed && confirmActionCallback) {
+        confirmActionCallback();
+      }
+      confirmActionCallback = null;
+    }
+
     function switchView(viewName) {
       document.getElementById('view-attendance').style.display = 'none';
       document.getElementById('view-dashboard').style.display = 'none';
@@ -525,13 +558,11 @@
         if (mediaStream) {
           stopCamera();
         }
-        
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        cameraDevices = devices.filter(device => device.kind === 'videoinput');
 
+        // ใช้ facingMode เพื่อแก้ปัญหาระบบไม่พบคิวหรือกล้องตัวอื่นบนไอโฟนและแอนดรอยด์
         const constraints = {
           video: {
-            deviceId: cameraDevices[currentDeviceIndex] ? { exact: cameraDevices[currentDeviceIndex].deviceId } : undefined,
+            facingMode: currentFacingMode,
             width: { ideal: 640 },
             height: { ideal: 480 }
           }
@@ -540,8 +571,24 @@
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         const video = document.getElementById('video');
         video.srcObject = mediaStream;
+
+        // จัดการเรื่องภาพสะท้อนกลับ (กล้องหน้าควร Mirror กล้องหลังไม่ควร Mirror)
+        if (currentFacingMode === 'user') {
+          video.style.transform = 'scaleX(-1)';
+          document.getElementById('selfie-img').style.transform = 'scaleX(-1)';
+        } else {
+          video.style.transform = 'none';
+          document.getElementById('selfie-img').style.transform = 'none';
+        }
       } catch (err) {
-        showToast("⚠️ ระบบเปิดกล้องล้มเหลว: " + err.message + "\nโปรดกดยอมรับการแชร์สิทธิ์เข้าถึงกล้องถ่ายรูปในเบราว์เซอร์ด้วยครับ", "error");
+        // Fallback กรณีบราวเซอร์ไม่รองรับ FacingMode ให้ดึงกล้องพื้นฐานขึ้นมาก่อน
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const video = document.getElementById('video');
+          video.srcObject = mediaStream;
+        } catch (fbErr) {
+          showToast("⚠️ ระบบเปิดกล้องล้มเหลว: " + fbErr.message + "\nโปรดกดยอมรับการแชร์สิทธิ์เข้าถึงกล้องถ่ายรูปในเบราว์เซอร์ด้วยครับ", "error");
+        }
       }
     }
 
@@ -553,12 +600,10 @@
     }
 
     async function toggleCamera() {
-      if (cameraDevices.length > 1) {
-        currentDeviceIndex = (currentDeviceIndex + 1) % cameraDevices.length;
-        await startCamera();
-      } else {
-        showToast("ไม่พบกล้องภายนอกตัวที่สองเพื่อใช้ในการสลับสับเปลี่ยน", "info");
-      }
+      // สลับระหว่าง 'user' (กล้องหน้า) และ 'environment' (กล้องหลัง) โดยตรงและยืดหยุ่นกว่า
+      currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+      showToast("🔄 กำลังสลับกล้อง...", "info");
+      await startCamera();
     }
 
     function takeSelfie() {
@@ -569,8 +614,12 @@
       canvas.width = video.videoWidth || 640;
       canvas.height = video.videoHeight || 480;
       
-      context.translate(canvas.width, 0);
-      context.scale(-1, 1);
+      // ถ้ารูปเป็นกล้องหน้า (สะท้อนกลับ) ให้กลับด้าน Canvas เพื่อให้ภาพบันทึกได้ตรงกับที่พนักงานเห็น
+      if (currentFacingMode === 'user') {
+        context.translate(canvas.width, 0);
+        context.scale(-1, 1);
+      }
+      
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
       context.setTransform(1, 0, 0, 1, 0, 0);
 
@@ -591,7 +640,7 @@
     }
 
     async function verifyEmployee() {
-      const empId = document.getElementById('empId').value.trim();
+      const empId = document.getElementById('empId').value.trim().toUpperCase();
       const pin = document.getElementById('empPin').value.trim();
 
       if (!empId || pin.length < 4) {
@@ -822,10 +871,9 @@
       } catch (e) {
         showToast("ไม่สามารถติดต่อเซิร์ฟเวอร์ระบบยืนยันตัวตนได้", "error");
         
-        // วิเคราะห์หาสาเหตุของปัญหาเพื่อช่วยให้ยูสเซอร์แก้ไขปัญหาได้ถูกทาง
         helpDiv.classList.remove('hidden');
         if (API_URL.includes('YOUR_SCRIPT_ID_HERE')) {
-          helpDiv.innerHTML = `<strong>⚠️ ตรวจพบข้อผิดพลาด:</strong> คุณยังไม่ได้ทำการระบุ URL ของเว็บแอปจริงที่บรรทัด 364 ของหน้าเว็บ index.html <br><span class="text-[10px] text-slate-500">กรุณาแก้ไฟล์ index.html และแทนที่ตัวแปร API_URL ด้วยลิงก์ Google Web App ของคุณ</span>`;
+          helpDiv.innerHTML = `<strong>⚠️ ตรวจพบข้อผิดพลาด:</strong> คุณยังไม่ได้ทำการระบุ URL ของเว็บแอปจริงที่ต้นสคริปต์ของหน้าเว็บ index.html <br><span class="text-[10px] text-slate-500">กรุณาแก้ไฟล์ index.html และแทนที่ตัวแปร API_URL ด้วยลิงก์ Google Web App ของคุณ</span>`;
         } else {
           helpDiv.innerHTML = `<strong>⚠️ การเชื่อมต่อล้มเหลว (Connection Failed):</strong> หน้าเว็บไม่สามารถเชื่อมโยงข้อมูลกับ URL ที่กำหนดได้ <br>
           <ul class="list-disc pl-4 text-[11px] text-slate-600 mt-1 text-left">
@@ -853,6 +901,8 @@
         if (result.status === 'success') {
           tbody.innerHTML = '';
           result.data.forEach(emp => {
+            // คัดลอกและแปลงอ็อบเจ็กต์ให้อยู่ในรูป string ปลอดภัยเพื่อป้อนเข้า function
+            const empJsonStr = JSON.stringify(emp).replace(/'/g, "\\'");
             tbody.innerHTML += `
               <tr class="hover:bg-slate-50 border-b border-slate-50 text-slate-800">
                 <td class="p-3 font-bold">${emp.empId}</td>
@@ -863,8 +913,8 @@
                   <span class="px-2 py-0.5 rounded text-[10px] font-bold ${emp.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${emp.status}</span>
                 </td>
                 <td class="p-3 text-center space-x-1 whitespace-nowrap">
-                  <button onclick='editEmployee(${JSON.stringify(emp)})' class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
-                  <button onclick="deleteEmployee('${emp.empId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
+                  <button onclick="editEmployee('${emp.empId}', '${emp.name.replace(/'/g, "\\'")}', '${emp.department.replace(/'/g, "\\'")}', '${emp.pin}', '${emp.status}')" class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
+                  <button onclick="confirmDeleteEmployee('${emp.empId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
                 </td>
               </tr>
             `;
@@ -887,14 +937,14 @@
       document.getElementById('emp-modal').classList.remove('hidden');
     }
 
-    function editEmployee(emp) {
+    function editEmployee(empId, name, department, pin, status) {
       isEditingEmployee = true;
       document.getElementById('m-emp-id').disabled = true;
-      document.getElementById('m-emp-id').value = emp.empId;
-      document.getElementById('m-emp-name').value = emp.name;
-      document.getElementById('m-emp-dept').value = emp.department;
-      document.getElementById('m-emp-pin').value = emp.pin;
-      document.getElementById('m-emp-status').value = emp.status;
+      document.getElementById('m-emp-id').value = empId;
+      document.getElementById('m-emp-name').value = name;
+      document.getElementById('m-emp-dept').value = department;
+      document.getElementById('m-emp-pin').value = pin;
+      document.getElementById('m-emp-status').value = status;
       document.getElementById('emp-modal-title').innerText = "แก้ไขแฟ้มข้อมูลพนักงาน";
       document.getElementById('emp-modal').classList.remove('hidden');
     }
@@ -904,7 +954,7 @@
     }
 
     async function submitEmployeeForm() {
-      const empId = document.getElementById('m-emp-id').value.trim();
+      const empId = document.getElementById('m-emp-id').value.trim().toUpperCase();
       const name = document.getElementById('m-emp-name').value.trim();
       const dept = document.getElementById('m-emp-dept').value.trim();
       const pin = document.getElementById('m-emp-pin').value.trim();
@@ -940,9 +990,15 @@
       }
     }
 
-    async function deleteEmployee(empId) {
-      const resultConfirm = confirm("คุณมั่นใจที่จะทำลายแฟ้มข้อมูลพนักงานรหัส: " + empId + " หรือไม่? (พนักงานจะสแกนเข้างานไม่ได้ทันที)");
-      if (!resultConfirm) return;
+    function confirmDeleteEmployee(empId) {
+      showConfirm(
+        "ยืนยันการลบพนักงาน?", 
+        `คุณมั่นใจที่จะทำลายแฟ้มข้อมูลพนักงานรหัส: ${empId} หรือไม่? (พนักงานคนนี้จะไม่สามารถสแกนลงเวลาเข้าออกงานได้ทันที)`,
+        () => executeDeleteEmployee(empId)
+      );
+    }
+
+    async function executeDeleteEmployee(empId) {
       showToast("ระบบกำลังลบพนักงานและสิทธิ์ PIN...", "info");
       
       try {
@@ -979,6 +1035,7 @@
           select.innerHTML = '<option value="">-- กรุณาเลือกจุดสาขาเพื่อออกสติกเกอร์ลงเวลางาน --</option>';
 
           result.data.forEach(loc => {
+            const locJsonStr = JSON.stringify(loc).replace(/'/g, "\\'");
             tbody.innerHTML += `
               <tr class="hover:bg-slate-50 border-b border-slate-50 text-slate-800">
                 <td class="p-3 font-bold text-slate-800">${loc.locName}</td>
@@ -986,13 +1043,13 @@
                 <td class="p-3 font-mono">${loc.lng}</td>
                 <td class="p-3 text-center font-bold text-slate-600">${loc.radius} ม.</td>
                 <td class="p-3 text-center space-x-1 whitespace-nowrap">
-                  <button onclick='editLocation(${JSON.stringify(loc)})' class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
-                  <button onclick="deleteLocation('${loc.locId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
+                  <button onclick="editLocation('${loc.locId}', '${loc.locName.replace(/'/g, "\\'")}', '${loc.lat}', '${loc.lng}', '${loc.radius}')" class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
+                  <button onclick="confirmDeleteLocation('${loc.locId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
                 </td>
               </tr>
             `;
 
-            select.innerHTML += `<option value='${JSON.stringify(loc)}'>📍 ${loc.locName}</option>`;
+            select.innerHTML += `<option value='${locJsonStr}'>📍 ${loc.locName}</option>`;
           });
         }
       } catch (err) {
@@ -1010,12 +1067,12 @@
       document.getElementById('loc-modal').classList.remove('hidden');
     }
 
-    function editLocation(loc) {
-      document.getElementById('m-loc-id').value = loc.locId;
-      document.getElementById('m-loc-name').value = loc.locName;
-      document.getElementById('m-loc-lat').value = loc.lat;
-      document.getElementById('m-loc-lng').value = loc.lng;
-      document.getElementById('m-loc-radius').value = loc.radius;
+    function editLocation(locId, locName, lat, lng, radius) {
+      document.getElementById('m-loc-id').value = locId;
+      document.getElementById('m-loc-name').value = locName;
+      document.getElementById('m-loc-lat').value = lat;
+      document.getElementById('m-loc-lng').value = lng;
+      document.getElementById('m-loc-radius').value = radius;
       document.getElementById('loc-modal-title').innerText = "แก้ไขพิกัดศูนย์กลางจุดลงชื่อ";
       document.getElementById('loc-modal').classList.remove('hidden');
     }
@@ -1061,9 +1118,15 @@
       }
     }
 
-    async function deleteLocation(locId) {
-      const resultConfirm = confirm("คุณแน่ใจว่าต้องการลบตำแหน่งพิกัดจุดนี้ออกจากสารบบฐานข้อมูลใช่หรือไม่?");
-      if (!resultConfirm) return;
+    function confirmDeleteLocation(locId) {
+      showConfirm(
+        "ยืนยันการลบสาขา/พิกัด?",
+        "คุณแน่ใจว่าต้องการลบตำแหน่งพิกัดจุดนี้ออกจากระบบฐานข้อมูลใช่หรือไม่? (การสแกนผ่าน QR ของจุดนี้จะล้มเหลวทันที)",
+        () => executeDeleteLocation(locId)
+      );
+    }
+
+    async function executeDeleteLocation(locId) {
       showToast("ระบบกำลังถอดถอนตำแหน่งพิกัด...", "info");
       
       try {
