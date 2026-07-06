@@ -1,0 +1,422 @@
+const SHEET_NAME_ATTENDANCE = 'Attendance';
+const SHEET_NAME_EMPLOYEES = 'Employees';
+const SHEET_NAME_LOCATIONS = 'Locations';
+const TIMEZONE = 'Asia/Bangkok';
+const DEFAULT_RADIUS = 100;
+const ADMIN_PASSWORD = 'admin1234'; // รหัสผ่านสำหรับระบบจัดการหลังบ้าน (ปรับเปลี่ยนได้ตามต้องการ)
+
+function doGet(e) {
+  // รองรับการแสดงผลหน้าเว็บกรณีต้องการนำมาทดสอบรันบน Google Web App โดยตรง
+  return HtmlService.createHtmlOutputFromFile('index')
+    .setTitle('ระบบลงเวลาทำงานอัจฉริยะ (GitHub Pages)')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function doPost(e) {
+  var output = { status: 'error', message: 'Unknown request' };
+  
+  try {
+    var params = JSON.parse(e.postData.contents);
+    var action = params.action;
+    
+    // ตรวจสอบและสร้างฐานข้อมูลตารางอัตโนมัติทุกครั้งที่มี Request
+    checkAndInitSheets_();
+    
+    if (action === 'getServerTime') {
+      output = { status: 'success', time: Utilities.formatDate(new Date(), TIMEZONE, 'dd/MM/yyyy HH:mm:ss') };
+    } 
+    else if (action === 'verifyEmployee') {
+      output = verifyEmployee_(params.empId, params.pin);
+    }
+    else if (action === 'recordAttendance') {
+      output = recordAttendance_(params);
+    }
+    else if (action === 'getDashboardData') {
+      output = getDashboardData_();
+    }
+    // --- Admin CRUD Actions ---
+    else if (action === 'verifyAdmin') {
+      if (params.password === ADMIN_PASSWORD) {
+        output = { status: 'success' };
+      } else {
+        output = { status: 'error', message: 'รหัสผ่านผู้ดูแลระบบไม่ถูกต้อง' };
+      }
+    }
+    else if (action === 'getEmployees') {
+      output = { status: 'success', data: getEmployeesList_() };
+    }
+    else if (action === 'saveEmployee') {
+      output = saveEmployee_(params.data);
+    }
+    else if (action === 'deleteEmployee') {
+      output = deleteEmployee_(params.empId);
+    }
+    else if (action === 'getLocations') {
+      output = { status: 'success', data: getLocationsList_() };
+    }
+    else if (action === 'saveLocation') {
+      output = saveLocation_(params.data);
+    }
+    else if (action === 'deleteLocation') {
+      output = deleteLocation_(params.locId);
+    }
+  } catch (error) {
+    output = { status: 'error', message: error.message || error.toString() };
+  }
+
+  return ContentService.createTextOutput(JSON.stringify(output))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function checkAndInitSheets_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // 1. ตารางลงเวลา (Attendance)
+  var attSheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
+  if (!attSheet) {
+    attSheet = ss.insertSheet(SHEET_NAME_ATTENDANCE);
+    attSheet.appendRow(['Timestamp', 'รหัสพนักงาน', 'ชื่อ-สกุล', 'สังกัด/สาขา', 'ประเภท', 'สถานที่ลงเวลา', 'ระยะห่าง (เมตร)', 'ละติจูด', 'ลองจิจูด', 'ลิงก์รูปถ่ายเซลฟี่', 'สถานะ']);
+    attSheet.getRange(1, 1, 1, 11).setFontWeight('bold').setBackground('#1565c0').setFontColor('#ffffff');
+    attSheet.setFrozenRows(1);
+  }
+  
+  // 2. ตารางข้อมูลพนักงาน (Employees)
+  var empSheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  if (!empSheet) {
+    empSheet = ss.insertSheet(SHEET_NAME_EMPLOYEES);
+    empSheet.appendRow(['รหัสพนักงาน', 'ชื่อ-สกุล', 'สังกัด/สาขา', 'PIN 4 หลัก', 'สถานะ']);
+    empSheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#2e7d32').setFontColor('#ffffff');
+    empSheet.setFrozenRows(1);
+    // สร้างพนักงานตัวอย่าง
+    empSheet.appendRow(['1001', 'ทดสอบ สมมุติ', 'ฝ่ายไอที สำนักงานใหญ่', '1234', 'Active']);
+  }
+  
+  // 3. ตารางจุดลงเวลา/สาขา (Locations)
+  var locSheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
+  if (!locSheet) {
+    locSheet = ss.insertSheet(SHEET_NAME_LOCATIONS);
+    locSheet.appendRow(['รหัสสาขา', 'ชื่อสาขา/สถานที่', 'ละติจูด', 'ลองจิจูด', 'รัศมีอนุญาต (เมตร)']);
+    locSheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#c62828').setFontColor('#ffffff');
+    locSheet.setFrozenRows(1);
+  }
+}
+
+function verifyEmployee_(empId, pin) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  var data = sheet.getDataRange().getValues();
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === empId.toString().trim()) {
+      if (data[i][3].toString().trim() === pin.toString().trim()) {
+        if (data[i][4].toString().trim() !== 'Active') {
+          return { status: 'error', message: 'รหัสพนักงานนี้ถูกระงับการใช้งาน' };
+        }
+        
+        // ตรวจสอบประวัติการลงเวลาของวันนี้ เพื่อเช็คสถานะล่าสุดและป้องกันการซ้ำซ้อน
+        var lastStatus = getTodayLastStatus_(empId);
+        return { 
+          status: 'success', 
+          empName: data[i][1], 
+          department: data[i][2],
+          lastStatus: lastStatus 
+        };
+      } else {
+        return { status: 'error', message: 'รหัส PIN 4 หลักไม่ถูกต้อง' };
+      }
+    }
+  }
+  return { status: 'error', message: 'ไม่พบข้อมูลรหัสพนักงานนี้ในระบบ' };
+}
+
+function getTodayLastStatus_(empId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
+  var data = sheet.getDataRange().getValues();
+  var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+  
+  var lastStatus = 'NONE';
+  for (var i = data.length - 1; i >= 1; i--) {
+    var ts = data[i][0];
+    if (ts instanceof Date) {
+      var logDateStr = Utilities.formatDate(ts, TIMEZONE, 'yyyy-MM-dd');
+      if (logDateStr === todayStr && data[i][1].toString().trim() === empId.toString().trim()) {
+        lastStatus = data[i][4]; // 'เข้างาน' หรือ 'ออกงาน'
+        break;
+      }
+    }
+  }
+  return lastStatus;
+}
+
+function saveSelfieToDrive_(base64Data, empId) {
+  try {
+    var folderName = 'Attendance_Selfies';
+    var folders = DriveApp.getFoldersByName(folderName);
+    var folder;
+    if (folders.hasNext()) {
+      folder = folders.next();
+    } else {
+      folder = DriveApp.createFolder(folderName);
+    }
+    
+    var contentType = base64Data.match(/^data:(.*);base64,/)[1];
+    var pureBase64 = base64Data.replace(/^data:image\/[^;]+;base64,/, "");
+    var blob = Utilities.newBlob(Utilities.base64Decode(pureBase64), contentType, 'Selfie_' + empId + '_' + new Date().getTime() + '.jpg');
+    
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    return file.getUrl();
+  } catch (e) {
+    return 'เกิดข้อผิดพลาดในการบันทึกรูป: ' + e.toString();
+  }
+}
+
+function recordAttendance_(params) {
+  var empId = params.empId.toString().trim();
+  var pin = params.pin.toString().trim();
+  
+  // ทำการรีเช็ค PIN บนเซิร์ฟเวอร์อีกรอบเพื่อความปลอดภัยสูงสุุด
+  var verification = verifyEmployee_(empId, pin);
+  if (verification.status === 'error') {
+    throw new Error(verification.message);
+  }
+  
+  var userLat = parseFloat(params.userLat);
+  var userLng = parseFloat(params.userLng);
+  var officeLat = parseFloat(params.officeLat);
+  var officeLng = parseFloat(params.officeLng);
+  var radius = parseFloat(params.radius) || DEFAULT_RADIUS;
+  
+  var dist = distanceMeters_(officeLat, officeLng, userLat, userLng);
+  if (dist > radius) {
+    throw new Error('บันทึกไม่สำเร็จ! พิกัด GPS อยู่ห่างจาก "' + params.locName + '" ประมาณ ' + Math.round(dist) + ' เมตร (รัศมีอนุญาต ' + radius + ' เมตร)');
+  }
+  
+  // บันทึกรูปเซลฟี่ลง Google Drive
+  var photoUrl = 'ไม่มีการส่งรูปถ่าย';
+  if (params.selfieBase64 && params.selfieBase64.startsWith('data:image')) {
+    photoUrl = saveSelfieToDrive_(params.selfieBase64, empId);
+  } else {
+    throw new Error('บันทึกไม่สำเร็จ! ระบบต้องการรูปถ่ายเซลฟี่เพื่อยืนยันตัวตน');
+  }
+  
+  var lock = LockService.getScriptLock();
+  lock.waitLock(12000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
+    var timestamp = new Date();
+    
+    var typeText = params.type === 'IN' ? 'เข้างาน' : 'ออกงาน';
+    
+    sheet.appendRow([
+      timestamp, 
+      empId, 
+      verification.empName, 
+      verification.department, 
+      typeText, 
+      params.locName, 
+      Math.round(dist), 
+      userLat, 
+      userLng, 
+      photoUrl, 
+      'ตรวจสอบสำเร็จ (GPS + PIN + Photo)'
+    ]);
+  } finally {
+    lock.releaseLock();
+  }
+  
+  var timeStr = Utilities.formatDate(new Date(), TIMEZONE, 'HH:mm:ss');
+  return {
+    status: 'success',
+    message: '✅ บันทึก "' + typeText + '" สำเร็จ\n👤 ' + verification.empName + '\n🏢 สังกัด: ' + verification.department + '\n⏰ เวลา: ' + timeStr + '\n📍 ห่างพิกัดจุด: ' + Math.round(dist) + ' เมตร'
+  };
+}
+
+function getEmployeesList_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  var data = sheet.getDataRange().getValues();
+  var list = [];
+  for (var i = 1; i < data.length; i++) {
+    list.push({
+      empId: data[i][0],
+      name: data[i][1],
+      department: data[i][2],
+      pin: data[i][3],
+      status: data[i][4]
+    });
+  }
+  return list;
+}
+
+function saveEmployee_(emp) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  var data = sheet.getDataRange().getValues();
+  var empId = emp.empId.toString().trim();
+  
+  // สุ่ม PIN 4 หลักอัตโนมัติหากไม่มีการระบุมา
+  var pin = emp.pin ? emp.pin.toString().trim() : Math.floor(1000 + Math.random() * 9000).toString();
+  var foundIndex = -1;
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === empId) {
+      foundIndex = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIndex !== -1) {
+    // อัปเดตข้อมูลพนักงานที่มีอยู่แล้ว
+    sheet.getRange(foundIndex, 2).setValue(emp.name);
+    sheet.getRange(foundIndex, 3).setValue(emp.department);
+    sheet.getRange(foundIndex, 4).setValue(pin);
+    sheet.getRange(foundIndex, 5).setValue(emp.status || 'Active');
+    return { status: 'success', message: 'อัปเดตข้อมูลพนักงาน ' + emp.name + ' เรียบร้อย (PIN: ' + pin + ')' };
+  } else {
+    // ตรวจสอบไอดีซ้ำก่อนจะบันทึกรายใหม่
+    for (var i = 1; i < data.length; i++) {
+      if (data[i][0].toString().trim() === empId) {
+        return { status: 'error', message: 'รหัสพนักงานนี้มีในระบบแล้ว' };
+      }
+    }
+    // เพิ่มพนักงานรายใหม่
+    sheet.appendRow([empId, emp.name, emp.department, pin, 'Active']);
+    return { status: 'success', message: 'เพิ่มพนักงานสำเร็จ! รหัส PIN สุ่มอัตโนมัติของคุณคือ: ' + pin };
+  }
+}
+
+function deleteEmployee_(empId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  var data = sheet.getDataRange().getValues();
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === empId.toString().trim()) {
+      sheet.deleteRow(i + 1);
+      return { status: 'success', message: 'ลบข้อมูลพนักงานเรียบร้อย' };
+    }
+  }
+  return { status: 'error', message: 'ไม่พบพนักงานที่ต้องการลบ' };
+}
+
+function getLocationsList_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
+  var data = sheet.getDataRange().getValues();
+  var list = [];
+  if (data.length <= 1) return list;
+  for (var i = 1; i < data.length; i++) {
+    list.push({
+      locId: data[i][0],
+      locName: data[i][1],
+      lat: data[i][2],
+      lng: data[i][3],
+      radius: data[i][4]
+    });
+  }
+  return list;
+}
+
+function saveLocation_(loc) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
+  var data = sheet.getDataRange().getValues();
+  var locId = loc.locId ? loc.locId.toString().trim() : 'LOC' + new Date().getTime();
+  
+  var foundIndex = -1;
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === locId) {
+      foundIndex = i + 1;
+      break;
+    }
+  }
+  
+  if (foundIndex !== -1) {
+    sheet.getRange(foundIndex, 2).setValue(loc.locName);
+    sheet.getRange(foundIndex, 3).setValue(parseFloat(loc.lat));
+    sheet.getRange(foundIndex, 4).setValue(parseFloat(loc.lng));
+    sheet.getRange(foundIndex, 5).setValue(parseInt(loc.radius) || DEFAULT_RADIUS);
+    return { status: 'success', message: 'อัปเดตข้อมูลจุดลงเวลาเรียบร้อย' };
+  } else {
+    sheet.appendRow([locId, loc.locName, parseFloat(loc.lat), parseFloat(loc.lng), parseInt(loc.radius) || DEFAULT_RADIUS]);
+    return { status: 'success', message: 'บันทึกจุดพิกัดลงเวลาใหม่เรียบร้อย' };
+  }
+}
+
+function deleteLocation_(locId) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
+  var data = sheet.getDataRange().getValues();
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0].toString().trim() === locId.toString().trim()) {
+      sheet.deleteRow(i + 1);
+      return { status: 'success', message: 'ลบจุดพิกัดออกเรียบร้อย' };
+    }
+  }
+  return { status: 'error', message: 'ไม่พบข้อมูลสาขาที่เลือก' };
+}
+
+function getDashboardData_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var attSheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
+  var empSheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
+  
+  var attData = attSheet.getDataRange().getValues();
+  var empCount = Math.max(0, empSheet.getLastRow() - 1);
+  var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
+  
+  var todayLogs = [];
+  var inCount = 0;
+  var outCount = 0;
+  var uniqueStaffToday = new Set();
+  
+  for (var i = attData.length - 1; i >= 1; i--) {
+    var ts = attData[i][0];
+    if (ts instanceof Date) {
+      var logDateStr = Utilities.formatDate(ts, TIMEZONE, 'yyyy-MM-dd');
+      if (logDateStr === todayStr) {
+        var logTime = Utilities.formatDate(ts, TIMEZONE, 'HH:mm:ss');
+        var type = attData[i][4];
+        if (type === 'เข้างาน') inCount++;
+        if (type === 'ออกงาน') outCount++;
+        uniqueStaffToday.add(attData[i][1].toString());
+        
+        todayLogs.push({
+          time: logTime,
+          empId: attData[i][1],
+          name: attData[i][2],
+          department: attData[i][3],
+          type: type,
+          location: attData[i][5],
+          distance: attData[i][6],
+          photo: attData[i][9]
+        });
+      }
+    }
+  }
+  
+  return {
+    status: 'success',
+    totalEmployees: empCount,
+    todayActiveCount: uniqueStaffToday.size,
+    todayIn: inCount,
+    todayOut: outCount,
+    logs: todayLogs
+  };
+}
+
+/* ---------- คำนวณระยะทางสูตรเกรทเซอร์เคิล (เมตร) ---------- */
+function distanceMeters_(lat1, lng1, lat2, lng2) {
+  var R = 6371000;
+  var toRad = function (d) { return d * Math.PI / 180; };
+  var dLat = toRad(lat2 - lat1);
+  var dLng = toRad(lng2 - lng1);
+  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
