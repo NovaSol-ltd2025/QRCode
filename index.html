@@ -225,7 +225,7 @@
 
     <!-- ======================== VIEW: ADMIN ======================== -->
     <section id="view-admin" class="space-y-6" style="display:none;">
-      <!-- หน้าจอยืนยันสิทธิ์ก่อนเข้าหน้า Admin -->
+      <!-- หน้าจอยืนยันสิทธิ์ก่อนเข้าหน้า Admin (ปรับปรุงความปลอดภัย: ลบรหัสผ่านเริ่มต้น คืนค่าว่าง บังคับพิมพ์รหัสผ่านเอง) -->
       <div id="admin-login-card" class="max-w-md mx-auto bg-white rounded-2xl p-6 custom-shadow border border-slate-100 text-center space-y-4">
         <div class="p-4 bg-amber-50 text-amber-500 rounded-full inline-block"><i class="ph-bold ph-shield-warning text-4xl"></i></div>
         <div>
@@ -233,7 +233,8 @@
           <p class="text-xs text-slate-400">กรุณากรอกรหัสผ่านผู้ดูแลระบบ (ค่าตั้งต้นคือ admin1234) เพื่อลงทะเบียนพนักงานและจุดสาขา</p>
         </div>
         <div class="space-y-2">
-          <input type="password" id="adminPassword" value="admin1234" placeholder="รหัสผ่านผู้ดูแลระบบ" class="w-full px-4 py-2 border border-slate-200 rounded-xl text-center font-bold focus:outline-none focus:border-blue-500 transition">
+          <!-- สังเกต: ลบ value="admin1234" และใส่ autocomplete="new-password" เพื่อความปลอดภัยสูงสุด -->
+          <input type="password" id="adminPassword" autocomplete="new-password" placeholder="ระบุรหัสผ่านผู้ดูแลระบบ" class="w-full px-4 py-2 border border-slate-200 rounded-xl text-center font-bold focus:outline-none focus:border-blue-500 transition">
           <button onclick="loginAdmin()" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition">ยืนยันรหัสผ่าน</button>
         </div>
         <!-- ข้อความช่วยเหลือเพื่อดีบักแก้ปัญหา -->
@@ -511,6 +512,15 @@
       confirmActionCallback = null;
     }
 
+    // ฟังก์ชันล็อกเอาต์ Admin และลบสถานะ ลบข้อมูลในแบบฟอร์มทันทีเมื่อสลับแท็บ
+    function logoutAdmin() {
+      document.getElementById('admin-main-panel').style.display = 'none';
+      document.getElementById('admin-login-card').style.display = 'block';
+      document.getElementById('adminPassword').value = ''; // เคลียร์ช่องป้อนรหัสผ่านเพื่อความปลอดภัยสูงสุด
+      const helpDiv = document.getElementById('admin-connection-help');
+      helpDiv.classList.add('hidden');
+    }
+
     function switchView(viewName) {
       document.getElementById('view-attendance').style.display = 'none';
       document.getElementById('view-dashboard').style.display = 'none';
@@ -526,6 +536,11 @@
       // ปิดกล้องวิดีโอเมื่อสลับหน้าเพื่อความเสถียรของเบราว์เซอร์
       if (viewName !== 'attendance') {
         stopCamera();
+      }
+      
+      // ระบบความปลอดภัย: ล็อกเอาต์และล้างฟอร์ม Admin ทุกครั้งที่มีการสลับออกจากแถบเมนู "จัดการระบบ"
+      if (viewName !== 'admin') {
+        logoutAdmin();
       }
       
       if (viewName === 'dashboard') {
