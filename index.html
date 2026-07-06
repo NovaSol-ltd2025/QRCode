@@ -1,422 +1,1097 @@
-const SHEET_NAME_ATTENDANCE = 'Attendance';
-const SHEET_NAME_EMPLOYEES = 'Employees';
-const SHEET_NAME_LOCATIONS = 'Locations';
-const TIMEZONE = 'Asia/Bangkok';
-const DEFAULT_RADIUS = 100;
-const ADMIN_PASSWORD = 'admin1234'; // รหัสผ่านสำหรับระบบจัดการหลังบ้าน (ปรับเปลี่ยนได้ตามต้องการ)
-
-function doGet(e) {
-  // รองรับการแสดงผลหน้าเว็บกรณีต้องการนำมาทดสอบรันบน Google Web App โดยตรง
-  return HtmlService.createHtmlOutputFromFile('index')
-    .setTitle('ระบบลงเวลาทำงานอัจฉริยะ (GitHub Pages)')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-}
-
-function doPost(e) {
-  var output = { status: 'error', message: 'Unknown request' };
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ระบบลงเวลาพนักงาน อัจฉริยะ 3-in-1</title>
+  <!-- โหลด Tailwind CSS และฟอนต์ Chakra Petch -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- โหลดไลบรารีไอคอน Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
   
-  try {
-    var params = JSON.parse(e.postData.contents);
-    var action = params.action;
+  <style>
+    body {
+      font-family: 'Chakra Petch', sans-serif;
+    }
+    .custom-shadow {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex flex-col">
+
+  <nav class="bg-blue-600 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+      <div class="flex items-center space-x-2 cursor-pointer" onclick="switchView('attendance')">
+        <i class="ph-bold ph-fingerprint text-2xl bg-white text-blue-600 p-1 rounded-lg"></i>
+        <span class="font-bold text-lg tracking-wider">TimeGPS Pro</span>
+      </div>
+      
+      <!-- เมนูสวิตช์หน้าหลักสำหรับ Desktop/Mobile -->
+      <div class="flex space-x-1 text-sm font-semibold">
+        <button onclick="switchView('attendance')" id="nav-attendance" class="px-3 py-2 rounded-lg bg-blue-700 transition">
+          <i class="ph ph-calendar-check mr-1 inline-block align-middle"></i> ลงเวลา
+        </button>
+        <button onclick="switchView('dashboard')" id="nav-dashboard" class="px-3 py-2 rounded-lg hover:bg-blue-700 transition">
+          <i class="ph ph-chart-pie mr-1 inline-block align-middle"></i> แดชบอร์ด
+        </button>
+        <button onclick="switchView('admin')" id="nav-admin" class="px-3 py-2 rounded-lg hover:bg-blue-700 transition">
+          <i class="ph ph-gear mr-1 inline-block align-middle"></i> จัดการระบบ
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="flex-grow max-w-6xl w-full mx-auto p-4 md:p-6">
+    <!-- กล่องแจ้งเตือน Toast แบบกำหนดเอง -->
+    <div id="toast" class="fixed top-20 right-4 left-4 md:left-auto md:w-96 z-50 transform translate-y-[-100px] opacity-0 transition-all duration-300 pointer-events-none">
+      <div class="bg-white rounded-xl shadow-2xl border-l-4 p-4 flex items-start space-x-3" id="toast-card">
+        <div id="toast-icon" class="text-xl mt-0.5"></div>
+        <div class="flex-1">
+          <p id="toast-message" class="text-slate-800 text-sm font-semibold whitespace-pre-line"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================== -->
+    <!-- ============================================== -->
+    <section id="view-attendance" class="max-w-md mx-auto space-y-6">
+      <div class="bg-white rounded-2xl p-6 custom-shadow border border-slate-100">
+        <!-- แสดงพิกัดและชื่อสาขา -->
+        <div class="flex items-center space-x-3 bg-blue-50 text-blue-700 p-3 rounded-xl mb-4">
+          <i class="ph-bold ph-map-pin text-xl animate-bounce"></i>
+          <div>
+            <p class="text-xs font-semibold uppercase tracking-wider text-blue-500">พิกัดสาขาที่แสกน</p>
+            <p class="font-bold text-sm" id="displayLocName">📍 กรุณาสแกน QR Code จุดลงเวลา</p>
+          </div>
+        </div>
+
+        <div class="text-center py-2">
+          <p class="text-xs text-slate-400 uppercase tracking-widest font-semibold">เวลาเรียลไทม์ (เซิร์ฟเวอร์)</p>
+          <p id="clock" class="text-3xl font-extrabold text-slate-800 my-1 tabular-nums">--:--:--</p>
+          <p id="clockDate" class="text-xs text-slate-500 font-medium">--/--/----</p>
+        </div>
+
+        <div id="setup-warn-card" class="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-4 mt-4 text-center">
+          <i class="ph-bold ph-warning text-3xl mb-1 text-amber-500"></i>
+          <p class="font-bold text-sm">ไม่พบพิกัดจุดลงงาน</p>
+          <p class="text-xs mt-1 text-amber-700">กรุณาใช้ QR Code ที่พิมพ์ออกมาสแกนเข้าใช้งาน หรือเข้าไปที่หน้า "จัดการระบบ" เพื่อสร้าง QR Code ของสาขาก่อนครับ</p>
+        </div>
+
+        <!-- ฟอร์มขั้นตอนสแกนและยืนยันตัวตนพนักงาน -->
+        <div id="attendance-form" class="space-y-4 mt-6" style="display:none;">
+          <!-- ขั้นที่ 1: ตรวจสอบข้อมูลพนักงานและ PIN 4 หลัก -->
+          <div id="step-id-pin" class="space-y-3">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">รหัสพนักงาน</label>
+              <input type="text" id="empId" placeholder="กรอกรหัสพนักงาน" inputmode="numeric" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-slate-800 focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">รหัส PIN 4 หลัก</label>
+              <input type="password" id="empPin" maxlength="4" placeholder="••••" inputmode="numeric" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-center tracking-widest text-slate-800 focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <button id="btnVerify" onclick="verifyEmployee()" class="w-full py-3 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition flex justify-center items-center gap-2">
+              <i class="ph-bold ph-key"></i> ยืนยันรหัสพนักงานและ PIN
+            </button>
+          </div>
+
+          <!-- ขั้นที่ 2: แสดงข้อมูลพนักงาน + กล้องเซลฟี่หลังยืนยันสำเร็จ -->
+          <div id="step-attendance-action" class="space-y-4 pt-2 border-t border-dashed border-slate-200" style="display:none;">
+            <div class="bg-emerald-50 text-emerald-800 p-3 rounded-xl flex items-center space-x-3">
+              <i class="ph-bold ph-user-focus text-2xl text-emerald-600"></i>
+              <div class="flex-1">
+                <p id="verified-name" class="font-bold text-sm"></p>
+                <p id="verified-dept" class="text-xs text-emerald-700 font-medium"></p>
+                <p id="verified-status" class="text-[11px] bg-emerald-200 text-emerald-800 inline-block px-1.5 py-0.5 rounded mt-1 font-bold"></p>
+              </div>
+              <button onclick="resetVerification()" class="text-xs font-bold bg-white text-slate-600 hover:text-red-500 px-2 py-1 rounded-lg border border-slate-200 transition">เปลี่ยนคน</button>
+            </div>
+
+            <!-- กล้องสำหรับเซลฟี่ -->
+            <div class="space-y-2">
+              <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider">📷 บังคับลงเวลาด้วยการเซลฟี่เพื่อยืนยันตัวตน</label>
+              <div class="relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center border-2 border-slate-200 shadow-inner">
+                <video id="video" autoplay playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
+                <canvas id="canvas" class="hidden"></canvas>
+                <!-- หน้ากากไกด์สำหรับเซลฟี่ -->
+                <div class="absolute inset-0 border-[30px] border-black/30 pointer-events-none flex items-center justify-center">
+                  <div class="w-32 h-32 md:w-40 md:h-40 rounded-full border-2 border-dashed border-white/80 animate-pulse"></div>
+                </div>
+                <!-- ปุ่มสลับกล้อง -->
+                <button onclick="toggleCamera()" class="absolute bottom-2 right-2 p-2 bg-slate-900/80 hover:bg-slate-950 text-white rounded-lg transition text-sm flex items-center gap-1">
+                  <i class="ph-bold ph-camera-rotate"></i> สลับกล้อง
+                </button>
+              </div>
+              <!-- พรีวิวภาพนิ่งกรณีถ่ายแล้ว -->
+              <div id="selfie-preview" class="hidden relative bg-slate-100 rounded-xl overflow-hidden aspect-video border-2 border-emerald-500 shadow-md">
+                <img id="selfie-img" src="" class="w-full h-full object-cover scale-x-[-1]">
+                <div class="absolute inset-0 bg-black/45 flex items-center justify-center">
+                  <span class="text-white font-bold text-xs bg-emerald-600 px-2.5 py-1 rounded-full shadow-md"><i class="ph ph-check-circle"></i> บันทึกภาพถ่ายเซลฟี่แล้ว</span>
+                </div>
+                <button onclick="retakeSelfie()" class="absolute bottom-2 right-2 p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition text-xs flex items-center gap-1">
+                  <i class="ph-bold ph-trash"></i> ถ่ายใหม่
+                </button>
+              </div>
+            </div>
+
+            <div class="btn-row flex gap-3 pt-2">
+              <button id="btnIn" onclick="clockAction('IN')" class="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-emerald-200 transition duration-300 flex flex-col items-center justify-center">
+                <i class="ph-fill ph-sign-in text-2xl"></i>
+                <span class="text-sm mt-1">ลงเวลาเข้างาน</span>
+              </button>
+              <button id="btnOut" onclick="clockAction('OUT')" class="flex-1 py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white font-bold text-lg rounded-xl shadow-lg hover:shadow-red-200 transition duration-300 flex flex-col items-center justify-center">
+                <i class="ph-fill ph-sign-out text-2xl"></i>
+                <span class="text-sm mt-1">ลงเวลาออกงาน</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-center text-slate-400 mt-6"><i class="ph ph-shield-check"></i> ข้อมูลพิกัดและรูปเซลฟี่จะบันทึกตรงสู่ระบบของฝ่ายบุคคลโดยปลอดภัย</p>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- ============================================== -->
+    <section id="view-dashboard" class="space-y-6" style="display:none;">
+      <!-- กล่องสถิติสรุปด้านบนสุด -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center space-x-3">
+          <div class="p-3 bg-blue-100 text-blue-600 rounded-xl"><i class="ph-bold ph-users-three text-xl"></i></div>
+          <div>
+            <p class="text-xs text-slate-400 font-semibold uppercase">พนักงานทั้งหมด</p>
+            <p id="dash-total-emp" class="text-2xl font-bold text-slate-800">0</p>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center space-x-3">
+          <div class="p-3 bg-emerald-100 text-emerald-600 rounded-xl"><i class="ph-bold ph-user-check text-xl"></i></div>
+          <div>
+            <p class="text-xs text-slate-400 font-semibold uppercase">ลงชื่อแล้ววันนี้</p>
+            <p id="dash-active-emp" class="text-2xl font-bold text-slate-800">0</p>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center space-x-3">
+          <div class="p-3 bg-teal-100 text-teal-600 rounded-xl"><i class="ph-bold ph-clock text-xl"></i></div>
+          <div>
+            <p class="text-xs text-slate-400 font-semibold uppercase">เข้างาน (ครั้ง)</p>
+            <p id="dash-in-count" class="text-2xl font-bold text-slate-800">0</p>
+          </div>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex items-center space-x-3">
+          <div class="p-3 bg-rose-100 text-rose-600 rounded-xl"><i class="ph-bold ph-arrow-square-out text-xl"></i></div>
+          <div>
+            <p class="text-xs text-slate-400 font-semibold uppercase">ออกงาน (ครั้ง)</p>
+            <p id="dash-out-count" class="text-2xl font-bold text-slate-800">0</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- รายการพนักงานที่บันทึกเวลาระหว่างวัน -->
+      <div class="bg-white rounded-2xl p-6 custom-shadow border border-slate-100">
+        <div class="flex justify-between items-center mb-4">
+          <div>
+            <h3 class="text-lg font-bold text-slate-800">บันทึกการเข้าออกงานในวันนี้</h3>
+            <p class="text-xs text-slate-400">พนักงานที่สแกนพิกัดเรียบร้อยแล้วเรียงตามเวลาล่าสุด</p>
+          </div>
+          <button onclick="loadDashboardData()" class="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 rounded-lg transition"><i class="ph-bold ph-arrow-clockwise"></i> รีเฟรช</button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="bg-slate-50 text-slate-400 text-xs font-bold uppercase tracking-wider border-b border-slate-100">
+                <th class="p-3">รูปถ่าย</th>
+                <th class="p-3">พนักงาน / สังกัด</th>
+                <th class="p-3 text-center">ประเภท</th>
+                <th class="p-3">สถานที่ / ระยะห่าง</th>
+                <th class="p-3 text-center">เวลา</th>
+              </tr>
+            </thead>
+            <tbody id="dashboard-logs-table" class="text-sm divide-y divide-slate-100">
+              <!-- ข้อมูลจะถูกกรอกโดยฟังก์ชัน JS -->
+              <tr>
+                <td colspan="5" class="p-6 text-center text-slate-400">กำลังโหลดประวัติประจำวัน...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- ============================================== -->
+    <section id="view-admin" class="space-y-6" style="display:none;">
+      <!-- หน้าจอยืนยันสิทธิ์ก่อนเข้าหน้า Admin -->
+      <div id="admin-login-card" class="max-w-md mx-auto bg-white rounded-2xl p-6 custom-shadow border border-slate-100 text-center space-y-4">
+        <div class="p-4 bg-amber-50 text-amber-500 rounded-full inline-block"><i class="ph-bold ph-shield-warning text-4xl"></i></div>
+        <div>
+          <h3 class="text-lg font-bold text-slate-800">เฉพาะผู้ดูแลระบบและฝ่ายบุคคล</h3>
+          <p class="text-xs text-slate-400">กรุณากรอกรหัสผ่านเพื่อตั้งค่าจุดลงพิกัดงานและพนักงาน</p>
+        </div>
+        <div class="space-y-2">
+          <input type="password" id="adminPassword" placeholder="รหัสผ่านผู้ดูแลระบบ" class="w-full px-4 py-2 border border-slate-200 rounded-xl text-center font-bold focus:outline-none focus:border-blue-500 transition">
+          <button onclick="loginAdmin()" class="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl transition">ยืนยันรหัสผ่าน</button>
+        </div>
+      </div>
+
+      <!-- แผงควบคุมเนื้อหาผู้ดูแลระบบจริง -->
+      <div id="admin-main-panel" style="display:none;" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- 💡 แผงสร้างแผ่นสติกเกอร์ QR Code ประจำจุด (ผูกกับจุดพิกัดในฐานข้อมูลเลย) -->
+        <div class="lg:col-span-1 space-y-6">
+          <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+            <h4 class="font-bold text-slate-800 border-b pb-2"><i class="ph-bold ph-qr-code text-blue-500 mr-1"></i> สร้างป้ายสแกน QR Code</h4>
+            
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-bold text-slate-500 mb-1">เลือกจุดลงงาน/สาขาที่บันทึกพิกัดไว้</label>
+                <select id="qr-select-location" class="w-full px-3 py-2 border border-slate-200 rounded-xl focus:outline-none focus:border-blue-500 transition text-sm">
+                  <option value="">-- ยังไม่มีรายชื่อจุดพิกัดในระบบ --</option>
+                </select>
+              </div>
+              <button onclick="generateQRFromSelect()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm transition flex justify-center items-center gap-1">
+                <i class="ph ph-sparkle"></i> สร้าง QR Code จากพิกัด
+              </button>
+            </div>
+
+            <!-- การแสดงผลรูปภาพ QR Code พร้อมพิมพ์ -->
+            <div id="qrResultPanel" class="hidden border border-slate-100 rounded-xl p-4 text-center space-y-3 bg-slate-50">
+              <div class="bg-white p-2 rounded-xl border inline-block">
+                <img id="qrImg" class="mx-auto w-48 h-48" src="">
+              </div>
+              <p id="qrLocLabel" class="text-sm font-bold text-slate-700"></p>
+              <p id="qrUrlLabel" class="text-[10px] text-slate-400 break-all bg-white p-1 rounded border border-slate-100"></p>
+              <button onclick="window.print()" class="w-full py-1.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl transition flex justify-center items-center gap-1">
+                <i class="ph ph-printer"></i> สั่งพิมพ์ป้ายสแกน
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 🏢 CRUD จัดการจุดพิกัดลงเวลาและพนักงาน -->
+        <div class="lg:col-span-2 space-y-6">
+          <!-- 1. ส่วนจัดการข้อมูลพนักงาน (Employee Management) -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+              <h4 class="font-bold text-slate-800"><i class="ph-bold ph-users text-emerald-500 mr-1"></i> รายชื่อพนักงานในสังกัด</h4>
+              <button onclick="openEmployeeModal()" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition"><i class="ph ph-plus"></i> เพิ่มพนักงาน</button>
+            </div>
+
+            <div class="overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-xl">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-slate-50 text-slate-400 font-bold border-b border-slate-100 sticky top-0">
+                    <th class="p-3">รหัส</th>
+                    <th class="p-3">ชื่อ-นามสกุล</th>
+                    <th class="p-3">สังกัดสาขา/แผนก</th>
+                    <th class="p-3 text-center">PIN สุ่ม</th>
+                    <th class="p-3 text-center">สถานะ</th>
+                    <th class="p-3 text-center">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-employees-table" class="divide-y divide-slate-100">
+                  <tr><td colspan="6" class="p-4 text-center text-slate-400">กรุณากดดึงข้อมูลพนักงาน</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 2. ส่วนจัดการตำแหน่งสถานที่/จุดลงพิกัด (Location Settings) -->
+          <div class="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-4">
+            <div class="flex justify-between items-center border-b pb-2">
+              <h4 class="font-bold text-slate-800"><i class="ph-bold ph-map-pin text-rose-500 mr-1"></i> จุดลงเวลาอนุญาต (จุดเซ็นเตอร์)</h4>
+              <button onclick="openLocationModal()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition"><i class="ph ph-plus"></i> เพิ่มจุดพิกัด</button>
+            </div>
+
+            <div class="overflow-x-auto max-h-72 overflow-y-auto border border-slate-100 rounded-xl">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-slate-50 text-slate-400 font-bold border-b border-slate-100 sticky top-0">
+                    <th class="p-3">ชื่อจุดลงพิกัด</th>
+                    <th class="p-3">ละติจูด (Lat)</th>
+                    <th class="p-3">ลองจิจูด (Lng)</th>
+                    <th class="p-3 text-center">รัศมี (ม.)</th>
+                    <th class="p-3 text-center">จัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-locations-table" class="divide-y divide-slate-100">
+                  <tr><td colspan="5" class="p-4 text-center text-slate-400">กรุณากดดึงข้อมูลจุดลงงาน</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================================== -->
+  <!-- ============================================== -->
+  <!-- 👤 ฟอร์มสร้างพนักงาน Modal -->
+  <div id="emp-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border">
+      <h3 id="emp-modal-title" class="font-bold text-slate-800 text-base">เพิ่มพนักงานใหม่</h3>
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">รหัสพนักงาน</label>
+          <input type="text" id="m-emp-id" placeholder="ระบุรหัสพนักงาน (เช่น 1001)" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">ชื่อ-สกุล</label>
+          <input type="text" id="m-emp-name" placeholder="ชื่อพนักงาน" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">แผนก/สังกัดประจำต่างสาขา</label>
+          <input type="text" id="m-emp-dept" placeholder="เช่น แผนกบัญชี สาขาสีลม" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">รหัส PIN 4 หลัก (เว้นว่างไว้จะสุ่มสร้างให้อัตโนมัติ)</label>
+          <input type="text" id="m-emp-pin" maxlength="4" placeholder="เช่น 1234 หรือว่างไว้" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500 text-center tracking-widest font-semibold">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">สถานะใช้งาน</label>
+          <select id="m-emp-status" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-emerald-500">
+            <option value="Active">Active (เปิดใช้งาน)</option>
+            <option value="Inactive">Inactive (ระงับสิทธิ์)</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="closeEmployeeModal()" class="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition">ยกเลิก</button>
+        <button onclick="submitEmployeeForm()" class="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition">บันทึกข้อมูล</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 🏢 ฟอร์มสร้างพิกัดสถานที่ Modal -->
+  <div id="loc-modal" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border">
+      <h3 id="loc-modal-title" class="font-bold text-slate-800 text-base">เพิ่มจุดลงเวลาพิกัด</h3>
+      <div class="space-y-3 text-xs">
+        <input type="hidden" id="m-loc-id">
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">ชื่อเรียกสาขา/สถานที่ทำงาน</label>
+          <input type="text" id="m-loc-name" placeholder="เช่น สำนักงานใหญ่ หรือ สาขาสีลม" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-rose-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">ละติจูด (Lat)</label>
+          <input type="text" id="m-loc-lat" placeholder="เช่น 13.7563" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-rose-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">ลองจิจูด (Lng)</label>
+          <input type="text" id="m-loc-lng" placeholder="เช่น 100.5018" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-rose-500">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-500 mb-1">รัศมีอนุญาตสแกน (เมตร)</label>
+          <input type="number" id="m-loc-radius" value="100" class="w-full px-3 py-2 border rounded-xl focus:outline-none focus:border-rose-500">
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="closeLocationModal()" class="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition">ยกเลิก</button>
+        <button onclick="submitLocationForm()" class="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition">บันทึกข้อมูล</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="bg-slate-800 text-slate-400 py-4 text-center text-xs border-t border-slate-700">
+    <p>&copy; 2026 TimeGPS Pro Anti-Cheat Attendance System</p>
+  </footer>
+
+  <!-- ============================================== -->
+  <!-- ============================================== -->
+  <script>
+    // ⚠️ นำ Web App URL ที่ได้จาก Google Apps Script (ที่ลงท้ายด้วย /exec) มาวางตรงนี้
+    const API_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID_HERE/exec';
+
+    // ดึงค่าตัวแปรจาก URL Params
+    const urlParams = new URLSearchParams(window.location.search);
+    const officeLat = urlParams.get('lat');
+    const officeLng = urlParams.get('lng');
+    const locName = urlParams.get('loc') || 'สถานที่ทำงาน';
+    const radius = urlParams.get('r') || 100;
+
+    // ตัวแปรส่วนจัดการกล้องเซลฟี่
+    let mediaStream = null;
+    let cameraDevices = [];
+    let currentDeviceIndex = 0;
+    let selfieCapturedBase64 = null;
+    let isEditingEmployee = false;
     
-    // ตรวจสอบและสร้างฐานข้อมูลตารางอัตโนมัติทุกครั้งที่มี Request
-    checkAndInitSheets_();
-    
-    if (action === 'getServerTime') {
-      output = { status: 'success', time: Utilities.formatDate(new Date(), TIMEZONE, 'dd/MM/yyyy HH:mm:ss') };
-    } 
-    else if (action === 'verifyEmployee') {
-      output = verifyEmployee_(params.empId, params.pin);
-    }
-    else if (action === 'recordAttendance') {
-      output = recordAttendance_(params);
-    }
-    else if (action === 'getDashboardData') {
-      output = getDashboardData_();
-    }
-    // --- Admin CRUD Actions ---
-    else if (action === 'verifyAdmin') {
-      if (params.password === ADMIN_PASSWORD) {
-        output = { status: 'success' };
+    // ข้อมูลพนักงานที่ผ่านการตรวจสอบ
+    let currentEmployeeId = null;
+    let currentEmployeePin = null;
+
+    window.onload = function () {
+      // 1. จัดการแสดงผลหน้าเริ่มต้นจากการสแกนพิกัด
+      if (officeLat && officeLng) {
+        document.getElementById('displayLocName').innerText = locName;
+        document.getElementById('setup-warn-card').style.display = 'none';
+        document.getElementById('attendance-form').style.display = 'block';
+        
+        // คืนค่าฟิลด์เดิมจาก Local Storage
+        document.getElementById('empId').value = localStorage.getItem('empId') || '';
       } else {
-        output = { status: 'error', message: 'รหัสผ่านผู้ดูแลระบบไม่ถูกต้อง' };
+        document.getElementById('setup-warn-card').style.display = 'block';
+        document.getElementById('attendance-form').style.display = 'none';
+      }
+
+      // 2. รันนาฬิกาเรียลไทม์
+      tickClock();
+      setInterval(tickClock, 1000);
+      
+      // 3. เริ่มดึงข้อมูลแดชบอร์ดล่วงหน้า
+      loadDashboardData();
+    };
+
+    function showToast(message, type = 'info') {
+      const toast = document.getElementById('toast');
+      const card = document.getElementById('toast-card');
+      const icon = document.getElementById('toast-icon');
+      const msg = document.getElementById('toast-message');
+
+      card.className = "bg-white rounded-xl shadow-2xl border-l-4 p-4 flex items-start space-x-3 transition duration-300";
+      
+      if (type === 'success') {
+        card.classList.add('border-emerald-500');
+        icon.innerHTML = '🟢';
+      } else if (type === 'error') {
+        card.classList.add('border-rose-500');
+        icon.innerHTML = '🔴';
+      } else {
+        card.classList.add('border-blue-500');
+        icon.innerHTML = '🔵';
+      }
+
+      msg.innerText = message;
+      toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-[-100px]', 'opacity-0');
+      }, 5000);
+    }
+
+    function switchView(viewName) {
+      document.getElementById('view-attendance').style.display = 'none';
+      document.getElementById('view-dashboard').style.display = 'none';
+      document.getElementById('view-admin').style.display = 'none';
+      
+      document.getElementById('nav-attendance').className = "px-3 py-2 rounded-lg hover:bg-blue-700 transition";
+      document.getElementById('nav-dashboard').className = "px-3 py-2 rounded-lg hover:bg-blue-700 transition";
+      document.getElementById('nav-admin').className = "px-3 py-2 rounded-lg hover:bg-blue-700 transition";
+
+      document.getElementById('view-' + viewName).style.display = 'block';
+      document.getElementById('nav-' + viewName).className = "px-3 py-2 rounded-lg bg-blue-700 font-bold transition";
+
+      // ปิดกล้องเมื่อออกจากเมนูลงเวลา
+      if (viewName !== 'attendance') {
+        stopCamera();
+      }
+      
+      if (viewName === 'dashboard') {
+        loadDashboardData();
       }
     }
-    else if (action === 'getEmployees') {
-      output = { status: 'success', data: getEmployeesList_() };
-    }
-    else if (action === 'saveEmployee') {
-      output = saveEmployee_(params.data);
-    }
-    else if (action === 'deleteEmployee') {
-      output = deleteEmployee_(params.empId);
-    }
-    else if (action === 'getLocations') {
-      output = { status: 'success', data: getLocationsList_() };
-    }
-    else if (action === 'saveLocation') {
-      output = saveLocation_(params.data);
-    }
-    else if (action === 'deleteLocation') {
-      output = deleteLocation_(params.locId);
-    }
-  } catch (error) {
-    output = { status: 'error', message: error.message || error.toString() };
-  }
 
-  return ContentService.createTextOutput(JSON.stringify(output))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+    async function tickClock() {
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'getServerTime' }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        if (result.status === 'success') {
+          // ดึงวันที่ด้วย
+          let parts = result.time.split(' ');
+          document.getElementById('clock').innerText = parts[1];
+          document.getElementById('clockDate').innerText = parts[0];
+        }
+      } catch(e) {
+        let d = new Date();
+        document.getElementById('clock').innerText = d.toLocaleTimeString('th-TH');
+        document.getElementById('clockDate').innerText = d.toLocaleDateString('th-TH');
+      }
+    }
 
-function checkAndInitSheets_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  // 1. ตารางลงเวลา (Attendance)
-  var attSheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
-  if (!attSheet) {
-    attSheet = ss.insertSheet(SHEET_NAME_ATTENDANCE);
-    attSheet.appendRow(['Timestamp', 'รหัสพนักงาน', 'ชื่อ-สกุล', 'สังกัด/สาขา', 'ประเภท', 'สถานที่ลงเวลา', 'ระยะห่าง (เมตร)', 'ละติจูด', 'ลองจิจูด', 'ลิงก์รูปถ่ายเซลฟี่', 'สถานะ']);
-    attSheet.getRange(1, 1, 1, 11).setFontWeight('bold').setBackground('#1565c0').setFontColor('#ffffff');
-    attSheet.setFrozenRows(1);
-  }
-  
-  // 2. ตารางข้อมูลพนักงาน (Employees)
-  var empSheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  if (!empSheet) {
-    empSheet = ss.insertSheet(SHEET_NAME_EMPLOYEES);
-    empSheet.appendRow(['รหัสพนักงาน', 'ชื่อ-สกุล', 'สังกัด/สาขา', 'PIN 4 หลัก', 'สถานะ']);
-    empSheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#2e7d32').setFontColor('#ffffff');
-    empSheet.setFrozenRows(1);
-    // สร้างพนักงานตัวอย่าง
-    empSheet.appendRow(['1001', 'ทดสอบ สมมุติ', 'ฝ่ายไอที สำนักงานใหญ่', '1234', 'Active']);
-  }
-  
-  // 3. ตารางจุดลงเวลา/สาขา (Locations)
-  var locSheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
-  if (!locSheet) {
-    locSheet = ss.insertSheet(SHEET_NAME_LOCATIONS);
-    locSheet.appendRow(['รหัสสาขา', 'ชื่อสาขา/สถานที่', 'ละติจูด', 'ลองจิจูด', 'รัศมีอนุญาต (เมตร)']);
-    locSheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#c62828').setFontColor('#ffffff');
-    locSheet.setFrozenRows(1);
-  }
-}
-
-function verifyEmployee_(empId, pin) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  var data = sheet.getDataRange().getValues();
-  
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === empId.toString().trim()) {
-      if (data[i][3].toString().trim() === pin.toString().trim()) {
-        if (data[i][4].toString().trim() !== 'Active') {
-          return { status: 'error', message: 'รหัสพนักงานนี้ถูกระงับการใช้งาน' };
+    async function startCamera() {
+      try {
+        if (mediaStream) {
+          stopCamera();
         }
         
-        // ตรวจสอบประวัติการลงเวลาของวันนี้ เพื่อเช็คสถานะล่าสุดและป้องกันการซ้ำซ้อน
-        var lastStatus = getTodayLastStatus_(empId);
-        return { 
-          status: 'success', 
-          empName: data[i][1], 
-          department: data[i][2],
-          lastStatus: lastStatus 
+        // ตรวจสอบลิสต์อุปกรณ์กล้องที่มีทั้งหมด
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        cameraDevices = devices.filter(device => device.kind === 'videoinput');
+
+        const constraints = {
+          video: {
+            deviceId: cameraDevices[currentDeviceIndex] ? { exact: cameraDevices[currentDeviceIndex].deviceId } : undefined,
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
         };
+
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const video = document.getElementById('video');
+        video.srcObject = mediaStream;
+      } catch (err) {
+        showToast("⚠️ ไม่สามารถเปิดกล้องได้: " + err.message + "\nกรุณาอนุญาตการใช้งานกล้องในเบราว์เซอร์ก่อน", "error");
+      }
+    }
+
+    function stopCamera() {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+    }
+
+    async function toggleCamera() {
+      if (cameraDevices.length > 1) {
+        currentDeviceIndex = (currentDeviceIndex + 1) % cameraDevices.length;
+        await startCamera();
       } else {
-        return { status: 'error', message: 'รหัส PIN 4 หลักไม่ถูกต้อง' };
+        showToast("พบกล้องวิดีโอเพียง 1 อุปกรณ์ ไม่สามารถสลับได้", "info");
       }
     }
-  }
-  return { status: 'error', message: 'ไม่พบข้อมูลรหัสพนักงานนี้ในระบบ' };
-}
 
-function getTodayLastStatus_(empId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
-  var data = sheet.getDataRange().getValues();
-  var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
-  
-  var lastStatus = 'NONE';
-  for (var i = data.length - 1; i >= 1; i--) {
-    var ts = data[i][0];
-    if (ts instanceof Date) {
-      var logDateStr = Utilities.formatDate(ts, TIMEZONE, 'yyyy-MM-dd');
-      if (logDateStr === todayStr && data[i][1].toString().trim() === empId.toString().trim()) {
-        lastStatus = data[i][4]; // 'เข้างาน' หรือ 'ออกงาน'
-        break;
+    function takeSelfie() {
+      const video = document.getElementById('video');
+      const canvas = document.getElementById('canvas');
+      const context = canvas.getContext('2d');
+      
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      
+      // วาดพรีวิวบนผืนผ้าใบแบบพลิกกระจก
+      context.translate(canvas.width, 0);
+      context.scale(-1, 1);
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      context.setTransform(1, 0, 0, 1, 0, 0);
+
+      selfieCapturedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+      
+      // แสดงภาพพรีวิว
+      document.getElementById('selfie-img').src = selfieCapturedBase64;
+      document.getElementById('video').classList.add('hidden');
+      document.getElementById('selfie-preview').classList.remove('hidden');
+      
+      stopCamera();
+    }
+
+    function retakeSelfie() {
+      selfieCapturedBase64 = null;
+      document.getElementById('video').classList.remove('hidden');
+      document.getElementById('selfie-preview').classList.add('hidden');
+      startCamera();
+    }
+
+    async function verifyEmployee() {
+      const empId = document.getElementById('empId').value.trim();
+      const pin = document.getElementById('empPin').value.trim();
+
+      if (!empId || pin.length < 4) {
+        showToast("กรุณากรอกรหัสพนักงาน และ PIN 4 หลักให้สมบูรณ์", "error");
+        return;
       }
-    }
-  }
-  return lastStatus;
-}
 
-function saveSelfieToDrive_(base64Data, empId) {
-  try {
-    var folderName = 'Attendance_Selfies';
-    var folders = DriveApp.getFoldersByName(folderName);
-    var folder;
-    if (folders.hasNext()) {
-      folder = folders.next();
-    } else {
-      folder = DriveApp.createFolder(folderName);
-    }
-    
-    var contentType = base64Data.match(/^data:(.*);base64,/)[1];
-    var pureBase64 = base64Data.replace(/^data:image\/[^;]+;base64,/, "");
-    var blob = Utilities.newBlob(Utilities.base64Decode(pureBase64), contentType, 'Selfie_' + empId + '_' + new Date().getTime() + '.jpg');
-    
-    var file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return file.getUrl();
-  } catch (e) {
-    return 'เกิดข้อผิดพลาดในการบันทึกรูป: ' + e.toString();
-  }
-}
-
-function recordAttendance_(params) {
-  var empId = params.empId.toString().trim();
-  var pin = params.pin.toString().trim();
-  
-  // ทำการรีเช็ค PIN บนเซิร์ฟเวอร์อีกรอบเพื่อความปลอดภัยสูงสุุด
-  var verification = verifyEmployee_(empId, pin);
-  if (verification.status === 'error') {
-    throw new Error(verification.message);
-  }
-  
-  var userLat = parseFloat(params.userLat);
-  var userLng = parseFloat(params.userLng);
-  var officeLat = parseFloat(params.officeLat);
-  var officeLng = parseFloat(params.officeLng);
-  var radius = parseFloat(params.radius) || DEFAULT_RADIUS;
-  
-  var dist = distanceMeters_(officeLat, officeLng, userLat, userLng);
-  if (dist > radius) {
-    throw new Error('บันทึกไม่สำเร็จ! พิกัด GPS อยู่ห่างจาก "' + params.locName + '" ประมาณ ' + Math.round(dist) + ' เมตร (รัศมีอนุญาต ' + radius + ' เมตร)');
-  }
-  
-  // บันทึกรูปเซลฟี่ลง Google Drive
-  var photoUrl = 'ไม่มีการส่งรูปถ่าย';
-  if (params.selfieBase64 && params.selfieBase64.startsWith('data:image')) {
-    photoUrl = saveSelfieToDrive_(params.selfieBase64, empId);
-  } else {
-    throw new Error('บันทึกไม่สำเร็จ! ระบบต้องการรูปถ่ายเซลฟี่เพื่อยืนยันตัวตน');
-  }
-  
-  var lock = LockService.getScriptLock();
-  lock.waitLock(12000);
-  try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
-    var timestamp = new Date();
-    
-    var typeText = params.type === 'IN' ? 'เข้างาน' : 'ออกงาน';
-    
-    sheet.appendRow([
-      timestamp, 
-      empId, 
-      verification.empName, 
-      verification.department, 
-      typeText, 
-      params.locName, 
-      Math.round(dist), 
-      userLat, 
-      userLng, 
-      photoUrl, 
-      'ตรวจสอบสำเร็จ (GPS + PIN + Photo)'
-    ]);
-  } finally {
-    lock.releaseLock();
-  }
-  
-  var timeStr = Utilities.formatDate(new Date(), TIMEZONE, 'HH:mm:ss');
-  return {
-    status: 'success',
-    message: '✅ บันทึก "' + typeText + '" สำเร็จ\n👤 ' + verification.empName + '\n🏢 สังกัด: ' + verification.department + '\n⏰ เวลา: ' + timeStr + '\n📍 ห่างพิกัดจุด: ' + Math.round(dist) + ' เมตร'
-  };
-}
-
-function getEmployeesList_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  var data = sheet.getDataRange().getValues();
-  var list = [];
-  for (var i = 1; i < data.length; i++) {
-    list.push({
-      empId: data[i][0],
-      name: data[i][1],
-      department: data[i][2],
-      pin: data[i][3],
-      status: data[i][4]
-    });
-  }
-  return list;
-}
-
-function saveEmployee_(emp) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  var data = sheet.getDataRange().getValues();
-  var empId = emp.empId.toString().trim();
-  
-  // สุ่ม PIN 4 หลักอัตโนมัติหากไม่มีการระบุมา
-  var pin = emp.pin ? emp.pin.toString().trim() : Math.floor(1000 + Math.random() * 9000).toString();
-  var foundIndex = -1;
-  
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === empId) {
-      foundIndex = i + 1;
-      break;
-    }
-  }
-  
-  if (foundIndex !== -1) {
-    // อัปเดตข้อมูลพนักงานที่มีอยู่แล้ว
-    sheet.getRange(foundIndex, 2).setValue(emp.name);
-    sheet.getRange(foundIndex, 3).setValue(emp.department);
-    sheet.getRange(foundIndex, 4).setValue(pin);
-    sheet.getRange(foundIndex, 5).setValue(emp.status || 'Active');
-    return { status: 'success', message: 'อัปเดตข้อมูลพนักงาน ' + emp.name + ' เรียบร้อย (PIN: ' + pin + ')' };
-  } else {
-    // ตรวจสอบไอดีซ้ำก่อนจะบันทึกรายใหม่
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][0].toString().trim() === empId) {
-        return { status: 'error', message: 'รหัสพนักงานนี้มีในระบบแล้ว' };
-      }
-    }
-    // เพิ่มพนักงานรายใหม่
-    sheet.appendRow([empId, emp.name, emp.department, pin, 'Active']);
-    return { status: 'success', message: 'เพิ่มพนักงานสำเร็จ! รหัส PIN สุ่มอัตโนมัติของคุณคือ: ' + pin };
-  }
-}
-
-function deleteEmployee_(empId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  var data = sheet.getDataRange().getValues();
-  
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === empId.toString().trim()) {
-      sheet.deleteRow(i + 1);
-      return { status: 'success', message: 'ลบข้อมูลพนักงานเรียบร้อย' };
-    }
-  }
-  return { status: 'error', message: 'ไม่พบพนักงานที่ต้องการลบ' };
-}
-
-function getLocationsList_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
-  var data = sheet.getDataRange().getValues();
-  var list = [];
-  if (data.length <= 1) return list;
-  for (var i = 1; i < data.length; i++) {
-    list.push({
-      locId: data[i][0],
-      locName: data[i][1],
-      lat: data[i][2],
-      lng: data[i][3],
-      radius: data[i][4]
-    });
-  }
-  return list;
-}
-
-function saveLocation_(loc) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
-  var data = sheet.getDataRange().getValues();
-  var locId = loc.locId ? loc.locId.toString().trim() : 'LOC' + new Date().getTime();
-  
-  var foundIndex = -1;
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === locId) {
-      foundIndex = i + 1;
-      break;
-    }
-  }
-  
-  if (foundIndex !== -1) {
-    sheet.getRange(foundIndex, 2).setValue(loc.locName);
-    sheet.getRange(foundIndex, 3).setValue(parseFloat(loc.lat));
-    sheet.getRange(foundIndex, 4).setValue(parseFloat(loc.lng));
-    sheet.getRange(foundIndex, 5).setValue(parseInt(loc.radius) || DEFAULT_RADIUS);
-    return { status: 'success', message: 'อัปเดตข้อมูลจุดลงเวลาเรียบร้อย' };
-  } else {
-    sheet.appendRow([locId, loc.locName, parseFloat(loc.lat), parseFloat(loc.lng), parseInt(loc.radius) || DEFAULT_RADIUS]);
-    return { status: 'success', message: 'บันทึกจุดพิกัดลงเวลาใหม่เรียบร้อย' };
-  }
-}
-
-function deleteLocation_(locId) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(SHEET_NAME_LOCATIONS);
-  var data = sheet.getDataRange().getValues();
-  
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][0].toString().trim() === locId.toString().trim()) {
-      sheet.deleteRow(i + 1);
-      return { status: 'success', message: 'ลบจุดพิกัดออกเรียบร้อย' };
-    }
-  }
-  return { status: 'error', message: 'ไม่พบข้อมูลสาขาที่เลือก' };
-}
-
-function getDashboardData_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var attSheet = ss.getSheetByName(SHEET_NAME_ATTENDANCE);
-  var empSheet = ss.getSheetByName(SHEET_NAME_EMPLOYEES);
-  
-  var attData = attSheet.getDataRange().getValues();
-  var empCount = Math.max(0, empSheet.getLastRow() - 1);
-  var todayStr = Utilities.formatDate(new Date(), TIMEZONE, 'yyyy-MM-dd');
-  
-  var todayLogs = [];
-  var inCount = 0;
-  var outCount = 0;
-  var uniqueStaffToday = new Set();
-  
-  for (var i = attData.length - 1; i >= 1; i--) {
-    var ts = attData[i][0];
-    if (ts instanceof Date) {
-      var logDateStr = Utilities.formatDate(ts, TIMEZONE, 'yyyy-MM-dd');
-      if (logDateStr === todayStr) {
-        var logTime = Utilities.formatDate(ts, TIMEZONE, 'HH:mm:ss');
-        var type = attData[i][4];
-        if (type === 'เข้างาน') inCount++;
-        if (type === 'ออกงาน') outCount++;
-        uniqueStaffToday.add(attData[i][1].toString());
-        
-        todayLogs.push({
-          time: logTime,
-          empId: attData[i][1],
-          name: attData[i][2],
-          department: attData[i][3],
-          type: type,
-          location: attData[i][5],
-          distance: attData[i][6],
-          photo: attData[i][9]
+      showToast("กำลังตรวจสอบสิทธิ์พนักงาน...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'verifyEmployee', empId: empId, pin: pin }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
         });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          currentEmployeeId = empId;
+          currentEmployeePin = pin;
+          
+          localStorage.setItem('empId', empId);
+
+          document.getElementById('step-id-pin').style.display = 'none';
+          document.getElementById('step-attendance-action').style.display = 'block';
+          
+          document.getElementById('verified-name').innerText = "👤 " + result.empName;
+          document.getElementById('verified-dept').innerText = "🏢 สังกัด: " + result.department;
+          
+          // ตรวจสอบประวัติการสแกน และแสดงสถานะป้องกันการลงซ้ำ
+          let blockIn = false;
+          let blockOut = false;
+          let statusText = "สิทธิ์ผ่านแล้ว สามารถลงเวลาได้";
+          
+          if (result.lastStatus === 'เข้างาน') {
+            statusText = "👉 วันนี้คุณบันทึก 'เข้างาน' ไปแล้ว (แนะนำ: ลงออกงาน)";
+            blockIn = true;
+          } else if (result.lastStatus === 'ออกงาน') {
+            statusText = "👉 วันนี้คุณได้บันทึก 'ออกงาน' สิ้นสุดวันเรียบร้อยแล้ว";
+            blockOut = true;
+          }
+          
+          document.getElementById('verified-status').innerText = statusText;
+          document.getElementById('btnIn').disabled = blockIn;
+          document.getElementById('btnOut').disabled = blockOut;
+
+          // สั่งทำงานกล้องถ่ายรูปเซลฟี่ทันที
+          startCamera();
+          showToast("ตรวจสอบพนักงานผ่านแล้ว กรุณาถ่ายเซลฟี่", "success");
+        } else {
+          showToast(result.message, "error");
+        }
+      } catch (e) {
+        showToast("ไม่สามารถเชื่อมต่อระบบหลังบ้านได้ กรุณาตรวจสอบอินเทอร์เน็ต", "error");
       }
     }
-  }
-  
-  return {
-    status: 'success',
-    totalEmployees: empCount,
-    todayActiveCount: uniqueStaffToday.size,
-    todayIn: inCount,
-    todayOut: outCount,
-    logs: todayLogs
-  };
-}
 
-/* ---------- คำนวณระยะทางสูตรเกรทเซอร์เคิล (เมตร) ---------- */
-function distanceMeters_(lat1, lng1, lat2, lng2) {
-  var R = 6371000;
-  var toRad = function (d) { return d * Math.PI / 180; };
-  var dLat = toRad(lat2 - lat1);
-  var dLng = toRad(lng2 - lng1);
-  var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-}
+    function resetVerification() {
+      stopCamera();
+      selfieCapturedBase64 = null;
+      currentEmployeeId = null;
+      currentEmployeePin = null;
+
+      document.getElementById('step-id-pin').style.display = 'block';
+      document.getElementById('step-attendance-action').style.display = 'none';
+      document.getElementById('video').classList.remove('hidden');
+      document.getElementById('selfie-preview').classList.add('hidden');
+      document.getElementById('empPin').value = '';
+    }
+
+    function clockAction(type) {
+      // บังคับถ่ายภาพนิ่งก่อนส่ง
+      if (!selfieCapturedBase64) {
+        takeSelfie();
+      }
+
+      setAttendanceButtonsDisabled(true);
+      showToast("กำลังตรวจสอบพิกัดความแม่นยำของ GPS...", "info");
+
+      if (!navigator.geolocation) {
+        showToast("อุปกรณ์นี้ไม่สนับสนุน GPS ลงเวลาไม่ได้", "error");
+        setAttendanceButtonsDisabled(false);
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          sendAttendanceToServer(position, type);
+        },
+        (error) => {
+          let msg = "ไม่สามารถยืนยันตำแหน่งได้";
+          if (error.code === 1) msg = "กรุณาเปิดรับสิทธิ์แชร์พิกัดหน้าเบราว์เซอร์ก่อนสแกน";
+          showToast(msg, "error");
+          setAttendanceButtonsDisabled(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    }
+
+    async function sendAttendanceToServer(position, type) {
+      showToast("ระบบอัปโหลดรูปภาพยืนยันตัวตน และบันทึกเวลา...", "info");
+
+      const payload = {
+        action: 'recordAttendance',
+        empId: currentEmployeeId,
+        pin: currentEmployeePin,
+        type: type,
+        userLat: position.coords.latitude,
+        userLng: position.coords.longitude,
+        officeLat: officeLat,
+        officeLng: officeLng,
+        locName: locName,
+        radius: radius,
+        selfieBase64: selfieCapturedBase64
+      };
+
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast(result.message, "success");
+          resetVerification();
+          loadDashboardData();
+        } else {
+          showToast("❌ " + result.message, "error");
+          setAttendanceButtonsDisabled(false);
+        }
+      } catch (err) {
+        showToast("เกิดข้อผิดพลาดในการรับ-ส่งข้อมูลกับเซิร์ฟเวอร์", "error");
+        setAttendanceButtonsDisabled(false);
+      }
+    }
+
+    function setAttendanceButtonsDisabled(disabled) {
+      document.getElementById('btnIn').disabled = disabled;
+      document.getElementById('btnOut').disabled = disabled;
+    }
+
+    async function loadDashboardData() {
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'getDashboardData' }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          document.getElementById('dash-total-emp').innerText = result.totalEmployees;
+          document.getElementById('dash-active-emp').innerText = result.todayActiveCount;
+          document.getElementById('dash-in-count').innerText = result.todayIn;
+          document.getElementById('dash-out-count').innerText = result.todayOut;
+
+          const tbody = document.getElementById('dashboard-logs-table');
+          tbody.innerHTML = '';
+          
+          if (result.logs.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">ยังไม่มีประวัติการลงสแกนวันนี้</td></tr>`;
+            return;
+          }
+
+          result.logs.forEach(log => {
+            const isIN = log.type === 'เข้างาน';
+            const badgeClass = isIN ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800";
+            
+            tbody.innerHTML += `
+              <tr class="hover:bg-slate-50 transition">
+                <td class="p-3">
+                  <a href="${log.photo}" target="_blank" class="block w-10 h-10 rounded-full overflow-hidden bg-slate-200 border-2 border-slate-200 shadow-sm relative group">
+                    <img src="${log.photo}" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
+                      <i class="ph ph-magnifying-glass text-white text-xs"></i>
+                    </div>
+                  </a>
+                </td>
+                <td class="p-3">
+                  <p class="font-bold text-slate-800">${log.name}</p>
+                  <p class="text-xs text-slate-400">ID: ${log.empId} • ${log.department}</p>
+                </td>
+                <td class="p-3 text-center">
+                  <span class="px-2 py-1 rounded-full text-xs font-bold ${badgeClass}">${log.type}</span>
+                </td>
+                <td class="p-3">
+                  <p class="font-semibold text-slate-700">${log.location}</p>
+                  <p class="text-xs text-slate-400">ห่างจากจุดศูนย์กลาง: ${log.distance} เมตร</p>
+                </td>
+                <td class="p-3 text-center font-semibold text-slate-800 tabular-nums">${log.time}</td>
+              </tr>
+            `;
+          });
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function loginAdmin() {
+      const pass = document.getElementById('adminPassword').value;
+      if (!pass) return;
+
+      showToast("กำลังตรวจสอบรหัสผ่าน...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'verifyAdmin', password: pass }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast("เข้าใช้งานระบบสำเร็จ", "success");
+          document.getElementById('admin-login-card').style.display = 'none';
+          document.getElementById('admin-main-panel').style.display = 'grid';
+          
+          // โหลดข้อมูล CRUD ของพนักงานและตำแหน่ง
+          loadAdminEmployeesList();
+          loadAdminLocationsList();
+        } else {
+          showToast(result.message, "error");
+        }
+      } catch (e) {
+        showToast("ไม่สามารถยืนยันตัวตน Admin ได้", "error");
+      }
+    }
+
+    async function loadAdminEmployeesList() {
+      const tbody = document.getElementById('admin-employees-table');
+      tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">กำลังโหลด...</td></tr>`;
+
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'getEmployees' }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          tbody.innerHTML = '';
+          result.data.forEach(emp => {
+            tbody.innerHTML += `
+              <tr class="hover:bg-slate-50 border-b border-slate-50">
+                <td class="p-3 font-bold">${emp.empId}</td>
+                <td class="p-3 font-semibold text-slate-800">${emp.name}</td>
+                <td class="p-3 text-slate-500">${emp.department}</td>
+                <td class="p-3 text-center font-mono font-bold text-blue-600">${emp.pin}</td>
+                <td class="p-3 text-center">
+                  <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${emp.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}">${emp.status}</span>
+                </td>
+                <td class="p-3 text-center space-x-1 whitespace-nowrap">
+                  <button onclick='editEmployee(${JSON.stringify(emp)})' class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
+                  <button onclick="deleteEmployee('${emp.empId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
+                </td>
+              </tr>
+            `;
+          });
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-rose-500">ผิดพลาดในการเชื่อมต่อ</td></tr>`;
+      }
+    }
+
+    function openEmployeeModal() {
+      isEditingEmployee = false;
+      document.getElementById('m-emp-id').disabled = false;
+      document.getElementById('m-emp-id').value = '';
+      document.getElementById('m-emp-name').value = '';
+      document.getElementById('m-emp-dept').value = '';
+      document.getElementById('m-emp-pin').value = '';
+      document.getElementById('m-emp-status').value = 'Active';
+      document.getElementById('emp-modal-title').innerText = "เพิ่มพนักงานใหม่";
+      document.getElementById('emp-modal').classList.remove('hidden');
+    }
+
+    function editEmployee(emp) {
+      isEditingEmployee = true;
+      document.getElementById('m-emp-id').disabled = true;
+      document.getElementById('m-emp-id').value = emp.empId;
+      document.getElementById('m-emp-name').value = emp.name;
+      document.getElementById('m-emp-dept').value = emp.department;
+      document.getElementById('m-emp-pin').value = emp.pin;
+      document.getElementById('m-emp-status').value = emp.status;
+      document.getElementById('emp-modal-title').innerText = "แก้ไขพนักงาน";
+      document.getElementById('emp-modal').classList.remove('hidden');
+    }
+
+    function closeEmployeeModal() {
+      document.getElementById('emp-modal').classList.add('hidden');
+    }
+
+    async function submitEmployeeForm() {
+      const empId = document.getElementById('m-emp-id').value.trim();
+      const name = document.getElementById('m-emp-name').value.trim();
+      const dept = document.getElementById('m-emp-dept').value.trim();
+      const pin = document.getElementById('m-emp-pin').value.trim();
+      const status = document.getElementById('m-emp-status').value;
+
+      if (!empId || !name || !dept) {
+        showToast("กรุณากรอกข้อมูลพนักงานให้ครบทุกช่องก่อนบันทึก", "error");
+        return;
+      }
+
+      showToast("กำลังส่งข้อมูล...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'saveEmployee',
+            data: { empId: empId, name: name, department: dept, pin: pin, status: status }
+          }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast(result.message, "success");
+          closeEmployeeModal();
+          loadAdminEmployeesList();
+        } else {
+          showToast(result.message, "error");
+        }
+      } catch (err) {
+        showToast("ไม่สามารถประมวลผลเพิ่ม/แก้ไขพนักงานได้", "error");
+      }
+    }
+
+    async function deleteEmployee(empId) {
+      if (!confirm("คุณมั่นใจหรือไม่ที่จะลบพนักงานรหัส: " + empId)) return;
+      showToast("กำลังลบพนักงาน...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'deleteEmployee', empId: empId }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        if (result.status === 'success') {
+          showToast(result.message, "success");
+          loadAdminEmployeesList();
+        }
+      } catch (err) {
+        showToast("เกิดข้อผิดพลาดในการลบพนักงาน", "error");
+      }
+    }
+
+    async function loadAdminLocationsList() {
+      const tbody = document.getElementById('admin-locations-table');
+      tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">กำลังโหลด...</td></tr>`;
+
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'getLocations' }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          tbody.innerHTML = '';
+          const select = document.getElementById('qr-select-location');
+          select.innerHTML = '<option value="">-- กรุณาเลือกจุดลงงานเพื่อออก QR --</option>';
+
+          result.data.forEach(loc => {
+            tbody.innerHTML += `
+              <tr class="hover:bg-slate-50 border-b border-slate-50">
+                <td class="p-3 font-bold text-slate-800">${loc.locName}</td>
+                <td class="p-3 font-mono">${loc.lat}</td>
+                <td class="p-3 font-mono">${loc.lng}</td>
+                <td class="p-3 text-center font-bold text-slate-700">${loc.radius} ม.</td>
+                <td class="p-3 text-center space-x-1 whitespace-nowrap">
+                  <button onclick='editLocation(${JSON.stringify(loc)})' class="p-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded transition"><i class="ph ph-note-pencil"></i></button>
+                  <button onclick="deleteLocation('${loc.locId}')" class="p-1 bg-red-50 text-red-600 hover:bg-red-100 rounded transition"><i class="ph ph-trash"></i></button>
+                </td>
+              </tr>
+            `;
+
+            // เพิ่มจุดพิกัดในดรอปดาวน์สำหรับสร้างป้าย QR Code
+            select.innerHTML += `<option value='${JSON.stringify(loc)}'>📍 ${loc.locName}</option>`;
+          });
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-rose-500">ดึงข้อมูลจุดไม่สำเร็จ</td></tr>`;
+      }
+    }
+
+    function openLocationModal() {
+      document.getElementById('m-loc-id').value = '';
+      document.getElementById('m-loc-name').value = '';
+      document.getElementById('m-loc-lat').value = '';
+      document.getElementById('m-loc-lng').value = '';
+      document.getElementById('m-loc-radius').value = '100';
+      document.getElementById('loc-modal-title').innerText = "เพิ่มพิกัดจุดลงเวลาใหม่";
+      document.getElementById('loc-modal').classList.remove('hidden');
+    }
+
+    function editLocation(loc) {
+      document.getElementById('m-loc-id').value = loc.locId;
+      document.getElementById('m-loc-name').value = loc.locName;
+      document.getElementById('m-loc-lat').value = loc.lat;
+      document.getElementById('m-loc-lng').value = loc.lng;
+      document.getElementById('m-loc-radius').value = loc.radius;
+      document.getElementById('loc-modal-title').innerText = "แก้ไขพิกัดสาขา";
+      document.getElementById('loc-modal').classList.remove('hidden');
+    }
+
+    function closeLocationModal() {
+      document.getElementById('loc-modal').classList.add('hidden');
+    }
+
+    async function submitLocationForm() {
+      const locId = document.getElementById('m-loc-id').value;
+      const locName = document.getElementById('m-loc-name').value.trim();
+      const lat = document.getElementById('m-loc-lat').value.trim();
+      const lng = document.getElementById('m-loc-lng').value.trim();
+      const radius = document.getElementById('m-loc-radius').value.trim();
+
+      if (!locName || !lat || !lng) {
+        showToast("กรุณากรอกข้อมูลพิกัดและชื่อสาขาให้ครบถ้วน", "error");
+        return;
+      }
+
+      showToast("กำลังส่งข้อมูล...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'saveLocation',
+            data: { locId: locId, locName: locName, lat: lat, lng: lng, radius: radius }
+          }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        
+        if (result.status === 'success') {
+          showToast(result.message, "success");
+          closeLocationModal();
+          loadAdminLocationsList();
+        } else {
+          showToast(result.message, "error");
+        }
+      } catch (err) {
+        showToast("การประมวลผลเพิ่มจุดลงงานผิดพลาด", "error");
+      }
+    }
+
+    async function deleteLocation(locId) {
+      if (!confirm("คุณแน่ใจไหมว่าต้องการลบพิกัดจุดสแกนนี้ออกจากระบบ")) return;
+      showToast("กำลังลบพิกัด...", "info");
+      
+      try {
+        let response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify({ action: 'deleteLocation', locId: locId }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        });
+        let result = await response.json();
+        if (result.status === 'success') {
+          showToast(result.message, "success");
+          loadAdminLocationsList();
+        }
+      } catch (err) {
+        showToast("ไม่สามารถลบข้อมูลพิกัดสาขานี้ได้", "error");
+      }
+    }
+
+    function generateQRFromSelect() {
+      const selectVal = document.getElementById('qr-select-location').value;
+      if (!selectVal) {
+        showToast("กรุณาเลือกสาขาที่บันทึกไว้ในฐานข้อมูลก่อนสร้าง QR Code", "error");
+        return;
+      }
+
+      const loc = JSON.parse(selectVal);
+      
+      // ดึง URL ฐานหลักของ GitHub Pages จาก Address bar ของเบราว์เซอร์ผู้ใช้โดยตรง
+      const githubPagesBaseUrl = window.location.href.split('?')[0];
+
+      const targetUrl = githubPagesBaseUrl
+        + '?lat=' + encodeURIComponent(loc.lat)
+        + '&lng=' + encodeURIComponent(loc.lng)
+        + '&loc=' + encodeURIComponent(loc.locName)
+        + '&r=' + encodeURIComponent(loc.radius);
+
+      // สร้างรูป QR จาก API บริการฟรี
+      const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' + encodeURIComponent(targetUrl);
+
+      document.getElementById('qrResultPanel').classList.remove('hidden');
+      document.getElementById('qrImg').src = qrImgUrl;
+      document.getElementById('qrLocLabel').innerText = "🏢 " + loc.locName + " (จำกัดรัศมี: " + loc.radius + " เมตร)";
+      document.getElementById('qrUrlLabel').innerText = targetUrl;
+      
+      showToast("สร้างป้ายลงเวลาสำเร็จ!", "success");
+    }
+  </script>
+</body>
+</html>
